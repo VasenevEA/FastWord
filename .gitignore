@@ -1,0 +1,33 @@
+# xcodegen-generated, never commit (regenerated from project.yml)
+FastWord.xcodeproj/
+FastWord/Resources/Info.plist
+
+# Build outputs
+build/
+DerivedData/
+*.xcworkspace/
+*.xcuserstate
+xcuserdata/
+
+# Swift package artifacts
+.build/
+.swiftpm/
+Package.resolved
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log

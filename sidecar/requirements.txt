@@ -1,0 +1,2 @@
+mlx-whisper>=0.4.0
+numpy>=1.26
