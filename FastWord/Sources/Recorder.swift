@@ -58,9 +58,10 @@ final class Recorder {
                 sumSq += s * s
             }
             let rms = sqrtf(sumSq / Float(max(frames, 1)))
-            // Map RMS (~0..0.3 for normal speech) to 0..1, exponential smoothing.
-            let normalized = min(1.0, rms * 6.0)
-            self.smoothedLevel = self.smoothedLevel * 0.6 + normalized * 0.4
+            // Speech RMS is typically 0.01–0.08. Apply sqrt curve + heavy gain so
+            // quiet talking still drives the bars visibly.
+            let normalized = min(1.0, sqrtf(rms) * 3.5)
+            self.smoothedLevel = max(self.smoothedLevel * 0.55, normalized)
             let level = self.smoothedLevel
             DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
 
@@ -77,6 +78,20 @@ final class Recorder {
         } catch {
             throw RecorderError.engineStart(error.localizedDescription)
         }
+    }
+
+    /// Snapshot the audio captured so far without stopping the recording.
+    /// Returns at most `maxSeconds` of the most recent audio.
+    func snapshot(maxSeconds: Double = 30) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !buffer.isEmpty else { return nil }
+        let bytesPerSample = MemoryLayout<Float>.size
+        let maxBytes = Int(targetSampleRate * maxSeconds) * bytesPerSample
+        if buffer.count > maxBytes {
+            return buffer.suffix(maxBytes)
+        }
+        return buffer
     }
 
     @discardableResult

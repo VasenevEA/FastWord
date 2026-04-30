@@ -1,0 +1,88 @@
+import SwiftUI
+
+struct SettingsView: View {
+    @AppStorage(SettingsKey.livePreviewEnabled) private var livePreview: Bool = false
+    @AppStorage(SettingsKey.hotkey) private var hotkeyRaw: String = HotkeyChoice.rightOption.rawValue
+    @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
+    @State private var languageChanged = false
+
+    private var hotkey: Binding<HotkeyChoice> {
+        Binding(
+            get: { HotkeyChoice(rawValue: hotkeyRaw) ?? .rightOption },
+            set: { newValue in
+                hotkeyRaw = newValue.rawValue
+                NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
+            }
+        )
+    }
+
+    private var language: Binding<LanguageChoice> {
+        Binding(
+            get: { LanguageChoice(rawValue: languageRaw) ?? .system },
+            set: { newValue in
+                languageRaw = newValue.rawValue
+                applyLanguage(newValue)
+                languageChanged = true
+            }
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker(LocalizedStringKey("Hold to dictate"), selection: hotkey) {
+                    ForEach(HotkeyChoice.allCases) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                .pickerStyle(.menu)
+            } header: {
+                Text(LocalizedStringKey("Hotkey"))
+            } footer: {
+                Text(LocalizedStringKey("Hold the chosen key to record. Release to transcribe and paste."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle(isOn: $livePreview) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LocalizedStringKey("Live preview while recording"))
+                        Text(LocalizedStringKey("Transcribe in chunks every 2s and show progress in the HUD. The pasted result still uses a full final pass for accuracy."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text(LocalizedStringKey("Transcription"))
+            }
+
+            Section {
+                Picker(LocalizedStringKey("Interface language"), selection: language) {
+                    ForEach(LanguageChoice.allCases) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                .pickerStyle(.menu)
+                if languageChanged {
+                    Text(LocalizedStringKey("Restart the app to apply the language change."))
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(LocalizedStringKey("Language"))
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 420)
+    }
+
+    private func applyLanguage(_ choice: LanguageChoice) {
+        if choice == .system {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.set([choice.rawValue], forKey: "AppleLanguages")
+        }
+        UserDefaults.standard.synchronize()
+    }
+}

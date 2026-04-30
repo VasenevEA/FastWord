@@ -1,0 +1,56 @@
+/* Menu */
+"Show History" = "显示历史记录";
+"Settings…" = "设置…";
+"Quit FastWord" = "退出 FastWord";
+
+/* Windows */
+"FastWord History" = "FastWord 历史记录";
+"FastWord Settings" = "FastWord 设置";
+
+/* History */
+"Search transcriptions" = "搜索转写记录";
+"No transcriptions yet" = "暂无转写记录";
+"Copy" = "复制";
+
+/* Settings */
+"Hotkey" = "快捷键";
+"Hold to dictate" = "按住以听写";
+"Hold the chosen key to record. Release to transcribe and paste." = "按住所选按键开始录音,松开后转写并粘贴。";
+"Transcription" = "转写";
+"Live preview while recording" = "录音时实时预览";
+"Transcribe in chunks every 2s and show progress in the HUD. The pasted result still uses a full final pass for accuracy." = "每 2 秒进行一次分段转写,在 HUD 中显示进度。最终粘贴的结果仍由完整转写生成以保证精度。";
+"Language" = "语言";
+"Interface language" = "界面语言";
+"Restart the app to apply the language change." = "请重新启动应用以应用语言更改。";
+
+/* HUD */
+"Listening…" = "正在聆听…";
+"Transcribing…" = "正在转写…";
+
+/* Status */
+"Idle" = "空闲";
+"Ready" = "就绪";
+"Recording..." = "录音中…";
+"Empty result" = "结果为空";
+"Done" = "完成";
+"status.ready" = "就绪(按住 %@)";
+"status.transcribe_failed" = "转写失败:%@";
+"status.mic_error" = "麦克风错误:%@";
+"status.permission_warning" = "⚠ 请授予 Input Monitoring + Accessibility 权限,然后退出并重新启动";
+
+/* Hotkey choices */
+"hotkey.right_option" = "右 Option (⌥)";
+"hotkey.left_option" = "左 Option (⌥)";
+"hotkey.right_command" = "右 Command (⌘)";
+"hotkey.left_command" = "左 Command (⌘)";
+"hotkey.right_control" = "右 Control (⌃)";
+"hotkey.left_control" = "左 Control (⌃)";
+"hotkey.right_shift" = "右 Shift (⇧)";
+"hotkey.left_shift" = "左 Shift (⇧)";
+"hotkey.fn" = "Fn / 🌐(部分键盘可能不支持)";
+
+/* Language choices */
+"language.system" = "跟随系统";
+"language.english" = "English";
+"language.russian" = "Русский";
+"language.chinese_simplified" = "简体中文";

@@ -10,6 +10,13 @@ if ! command -v xcodegen >/dev/null 2>&1; then
     exit 1
 fi
 
+if [[ ! -f LocalConfig.xcconfig ]]; then
+    echo "LocalConfig.xcconfig not found." >&2
+    echo "Copy LocalConfig.xcconfig.example to LocalConfig.xcconfig and set DEVELOPMENT_TEAM." >&2
+    echo "(Find your Team ID at https://developer.apple.com/account → Membership.)" >&2
+    exit 1
+fi
+
 xcodegen generate
 
 xcodebuild \

@@ -10,9 +10,19 @@ final class HotkeyMonitor {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var keyDown = false
-    // Right Option key. Identified by keyCode 61 (kVK_RightOption) on flagsChanged
-    // with .maskAlternate set. Works on any keyboard, unlike fn.
-    private let triggerKeyCode: Int64 = 61
+    private var triggerKeyCode: Int64 = AppSettings.hotkey.keyCode
+    private var triggerFlag: CGEventFlags = AppSettings.hotkey.modifierFlag
+
+    func reloadHotkey() {
+        let choice = AppSettings.hotkey
+        triggerKeyCode = choice.keyCode
+        triggerFlag = choice.modifierFlag
+        // If the previously-tracked key was held under the old config, force release.
+        if keyDown {
+            keyDown = false
+            DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
+        }
+    }
 
     func start() {
         let mask = (1 << CGEventType.flagsChanged.rawValue)
@@ -75,31 +85,27 @@ final class HotkeyMonitor {
 
     private func handleFlags(_ event: CGEvent) {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let altDown = event.flags.contains(.maskAlternate)
-        Self.dlog("kc=\(keyCode) alt=\(altDown) raw=\(event.flags.rawValue) keyDown=\(keyDown)")
+        let modDown = event.flags.contains(triggerFlag)
         guard keyCode == triggerKeyCode else {
-            // If our key was held but a different modifier event fires while alt is gone,
-            // treat as release.
-            if !altDown && keyDown {
+            // Different modifier fired and ours isn't held in flags — release if needed.
+            if !modDown && keyDown {
                 keyDown = false
                 DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
             }
             return
         }
-        if altDown && !keyDown {
+        if modDown && !keyDown {
             keyDown = true
             DispatchQueue.main.async { [weak self] in self?.onPressStart?() }
-        } else if !altDown && keyDown {
+        } else if !modDown && keyDown {
             keyDown = false
             DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
         }
     }
 
     fileprivate func recoverAfterTapReEnable() {
-        // After tap timeout/disable, we may have missed a release. If we still
-        // think the key is down but it isn't, force a release.
-        let altDown = NSEvent.modifierFlags.contains(.option)
-        if keyDown && !altDown {
+        // After tap timeout/disable, we may have missed a release. Force release.
+        if keyDown {
             keyDown = false
             DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
         }

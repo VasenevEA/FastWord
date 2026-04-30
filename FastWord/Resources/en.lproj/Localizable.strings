@@ -1,0 +1,56 @@
+/* Menu */
+"Show History" = "Show History";
+"Settings…" = "Settings…";
+"Quit FastWord" = "Quit FastWord";
+
+/* Windows */
+"FastWord History" = "FastWord History";
+"FastWord Settings" = "FastWord Settings";
+
+/* History */
+"Search transcriptions" = "Search transcriptions";
+"No transcriptions yet" = "No transcriptions yet";
+"Copy" = "Copy";
+
+/* Settings */
+"Hotkey" = "Hotkey";
+"Hold to dictate" = "Hold to dictate";
+"Hold the chosen key to record. Release to transcribe and paste." = "Hold the chosen key to record. Release to transcribe and paste.";
+"Transcription" = "Transcription";
+"Live preview while recording" = "Live preview while recording";
+"Transcribe in chunks every 2s and show progress in the HUD. The pasted result still uses a full final pass for accuracy." = "Transcribe in chunks every 2s and show progress in the HUD. The pasted result still uses a full final pass for accuracy.";
+"Language" = "Language";
+"Interface language" = "Interface language";
+"Restart the app to apply the language change." = "Restart the app to apply the language change.";
+
+/* HUD */
+"Listening…" = "Listening…";
+"Transcribing…" = "Transcribing…";
+
+/* Status */
+"Idle" = "Idle";
+"Ready" = "Ready";
+"Recording..." = "Recording…";
+"Empty result" = "Empty result";
+"Done" = "Done";
+"status.ready" = "Ready (hold %@)";
+"status.transcribe_failed" = "Transcribe failed: %@";
+"status.mic_error" = "Mic error: %@";
+"status.permission_warning" = "⚠ Grant Input Monitoring + Accessibility, then quit & relaunch";
+
+/* Hotkey choices */
+"hotkey.right_option" = "Right Option (⌥)";
+"hotkey.left_option" = "Left Option (⌥)";
+"hotkey.right_command" = "Right Command (⌘)";
+"hotkey.left_command" = "Left Command (⌘)";
+"hotkey.right_control" = "Right Control (⌃)";
+"hotkey.left_control" = "Left Control (⌃)";
+"hotkey.right_shift" = "Right Shift (⇧)";
+"hotkey.left_shift" = "Left Shift (⇧)";
+"hotkey.fn" = "Fn / 🌐 (may not work on some keyboards)";
+
+/* Language choices */
+"language.system" = "System default";
+"language.english" = "English";
+"language.russian" = "Русский";
+"language.chinese_simplified" = "简体中文";

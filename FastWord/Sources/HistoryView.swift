@@ -10,7 +10,7 @@ struct HistoryView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search transcriptions", text: $search)
+                TextField(LocalizedStringKey("Search transcriptions"), text: $search)
                     .textFieldStyle(.plain)
             }
             .padding(10)
@@ -23,7 +23,7 @@ struct HistoryView: View {
                     Image(systemName: "mic.slash")
                         .font(.system(size: 36))
                         .foregroundStyle(.secondary)
-                    Text("No transcriptions yet")
+                    Text(LocalizedStringKey("No transcriptions yet"))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -32,7 +32,7 @@ struct HistoryView: View {
                     EntryRow(entry: entry)
                         .tag(entry.id)
                         .contextMenu {
-                            Button("Copy") { copy(entry.text) }
+                            Button(LocalizedStringKey("Copy")) { copy(entry.text) }
                         }
                 }
                 .listStyle(.inset)

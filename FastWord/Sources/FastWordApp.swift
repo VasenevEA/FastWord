@@ -13,10 +13,15 @@ struct FastWordApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        WindowGroup("FastWord History", id: "history") {
+        WindowGroup(LocalizedStringKey("FastWord History"), id: "history") {
             HistoryView()
                 .environmentObject(appDelegate.controller)
                 .frame(minWidth: 700, minHeight: 500)
+        }
+        .windowResizability(.contentSize)
+
+        WindowGroup(LocalizedStringKey("FastWord Settings"), id: "settings") {
+            SettingsView()
         }
         .windowResizability(.contentSize)
     }
@@ -27,11 +32,17 @@ struct MenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Show History") {
+        Button(LocalizedStringKey("Show History")) {
             openWindow(id: "history")
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut("h")
+
+        Button(LocalizedStringKey("Settings…")) {
+            openWindow(id: "settings")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .keyboardShortcut(",")
 
         Divider()
 
@@ -39,7 +50,7 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Quit FastWord") {
+        Button(LocalizedStringKey("Quit FastWord")) {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")

@@ -6,12 +6,20 @@ final class HUDController {
     let state = HUDState()
 
     @MainActor
-    func show() {
+    func show(wide: Bool) {
         state.mode = .recording
         state.level = 0
+        state.preview = ""
+        state.wide = wide
         if window == nil { buildWindow() }
+        resizeWindow(wide: wide)
         window?.orderFrontRegardless()
         positionWindow()
+    }
+
+    @MainActor
+    func setPreview(_ text: String) {
+        state.preview = text
     }
 
     @MainActor
@@ -29,12 +37,13 @@ final class HUDController {
         window?.orderOut(nil)
         state.mode = .idle
         state.level = 0
+        state.preview = ""
     }
 
     @MainActor
     private func buildWindow() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 220, height: 64),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 80),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -47,6 +56,15 @@ final class HUDController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.contentView = NSHostingView(rootView: HUDView().environmentObject(state))
         window = panel
+    }
+
+    @MainActor
+    private func resizeWindow(wide: Bool) {
+        guard let window else { return }
+        let size = wide ? NSSize(width: 360, height: 80) : NSSize(width: 220, height: 64)
+        var frame = window.frame
+        frame.size = size
+        window.setFrame(frame, display: false, animate: false)
     }
 
     @MainActor
@@ -67,32 +85,77 @@ enum HUDMode { case idle, recording, transcribing }
 final class HUDState: ObservableObject {
     @Published var mode: HUDMode = .idle
     @Published var level: Float = 0
+    @Published var preview: String = ""
+    @Published var wide: Bool = false
 }
 
 struct HUDView: View {
     @EnvironmentObject var state: HUDState
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             EqualizerView(mode: state.mode, level: state.level)
                 .frame(width: 56, height: 32)
-            Text(label)
-                .foregroundStyle(.white)
-                .font(.system(size: 14, weight: .medium))
-            Spacer()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .foregroundStyle(.primary)
+                    .font(.system(size: 14, weight: .semibold))
+                if !state.preview.isEmpty {
+                    Text(state.preview)
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .lineLimit(2)
+                        .truncationMode(.head)
+                }
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .frame(width: 220, height: 64)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.82))
+        .padding(.vertical, 12)
+        .frame(
+            width: state.wide ? 360 : 220,
+            height: state.wide ? 80 : 64,
+            alignment: .leading
         )
+        .modifier(LiquidGlassBackground(tint: tint))
     }
 
-    private var label: String {
+    private var tint: Color {
         switch state.mode {
-        case .recording: return "Listening…"
-        case .transcribing: return "Transcribing…"
+        case .recording: return .red
+        case .transcribing: return .yellow
+        case .idle: return .clear
+        }
+    }
+}
+
+private struct LiquidGlassBackground: ViewModifier {
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(
+                .regular.tint(tint.opacity(0.18)).interactive(),
+                in: .rect(cornerRadius: 18)
+            )
+        } else {
+            content.background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 0.5)
+                    )
+            )
+        }
+    }
+}
+
+private extension HUDView {
+    var label: String {
+        switch state.mode {
+        case .recording: return NSLocalizedString("Listening…", comment: "")
+        case .transcribing: return NSLocalizedString("Transcribing…", comment: "")
         case .idle: return ""
         }
     }
@@ -131,7 +194,7 @@ private struct EqualizerView: View {
         switch mode {
         case .recording: return .red
         case .transcribing: return .yellow
-        case .idle: return .gray
+        case .idle: return .secondary
         }
     }
 

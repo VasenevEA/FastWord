@@ -3,12 +3,14 @@ options:
   bundleIdPrefix: com.fastword
   deploymentTarget:
     macOS: "13.0"
+configFiles:
+  Debug: LocalConfig.xcconfig
+  Release: LocalConfig.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_IDENTITY: "Apple Development"
     ENABLE_HARDENED_RUNTIME: YES
 targets:
   FastWord:
@@ -26,6 +28,11 @@ targets:
         CFBundleName: FastWord
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations:
+          - en
+          - ru
+          - zh-Hans
     entitlements:
       path: FastWord/Resources/FastWord.entitlements
       properties:
@@ -33,6 +40,6 @@ targets:
         com.apple.security.device.audio-input: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.fastword.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrv.fastword
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         GENERATE_INFOPLIST_FILE: NO

@@ -30,6 +30,12 @@ Clone and bootstrap:
 git clone https://github.com/VasenevEA/FastWord.git
 cd FastWord
 brew install xcodegen
+
+# One-time signing setup — copy the example and fill in your Team ID.
+cp LocalConfig.xcconfig.example LocalConfig.xcconfig
+# Edit LocalConfig.xcconfig and set DEVELOPMENT_TEAM = YOUR_TEAM_ID
+# (find it at developer.apple.com → Membership)
+
 ./scripts/bootstrap.sh
 ./scripts/build.sh
 open build/Build/Products/Debug/FastWord.app
@@ -112,6 +118,40 @@ Models are cached at `~/.cache/huggingface`. The default `turbo` weights are ~1.
 **RAM stays high after dictating.** Wait 10 min — the sidecar evicts the model. Tune with `FASTWORD_IDLE_EVICT`.
 
 **Build fails with `xcodegen: command not found`.** `brew install xcodegen`.
+
+## Languages
+
+The interface is localized into:
+
+- English
+- Русский
+- 简体中文
+
+Switch in **Settings → Language**, or set automatically based on your macOS preferences.
+
+## Release & distribution
+
+To build a notarized DMG for distribution (e.g. via GitHub Releases or your own site):
+
+1. Have a "Developer ID Application" certificate in your login keychain.
+2. Store notarization credentials once:
+   ```bash
+   xcrun notarytool store-credentials FASTWORD_NOTARY \
+       --apple-id "you@example.com" \
+       --team-id  "YOUR_TEAM_ID" \
+       --password "xxxx-xxxx-xxxx-xxxx"   # app-specific password from appleid.apple.com
+   ```
+3. Run:
+   ```bash
+   ./scripts/release.sh
+   ```
+   The signed, notarized DMG lands at `build/release/FastWord-<version>.dmg`.
+
+To publish on GitHub:
+```bash
+gh release create v0.1.0 build/release/FastWord-0.1.0.dmg \
+    --title "FastWord 0.1.0" --generate-notes
+```
 
 ## License
 

@@ -1,0 +1,56 @@
+/* Menu */
+"Show History" = "История";
+"Settings…" = "Настройки…";
+"Quit FastWord" = "Выход";
+
+/* Windows */
+"FastWord History" = "История FastWord";
+"FastWord Settings" = "Настройки FastWord";
+
+/* History */
+"Search transcriptions" = "Поиск по транскрипциям";
+"No transcriptions yet" = "Транскрипций пока нет";
+"Copy" = "Копировать";
+
+/* Settings */
+"Hotkey" = "Горячая клавиша";
+"Hold to dictate" = "Удерживайте, чтобы диктовать";
+"Hold the chosen key to record. Release to transcribe and paste." = "Удерживайте выбранную клавишу для записи. Отпустите — текст будет распознан и вставлен.";
+"Transcription" = "Распознавание";
+"Live preview while recording" = "Превью во время записи";
+"Transcribe in chunks every 2s and show progress in the HUD. The pasted result still uses a full final pass for accuracy." = "Распознаёт каждые 2 сек и показывает в HUD. Финальный текст всё равно проходит через полное распознавание ради точности.";
+"Language" = "Язык";
+"Interface language" = "Язык интерфейса";
+"Restart the app to apply the language change." = "Перезапустите приложение, чтобы применить язык.";
+
+/* HUD */
+"Listening…" = "Слушаю…";
+"Transcribing…" = "Распознаю…";
+
+/* Status */
+"Idle" = "Простой";
+"Ready" = "Готов";
+"Recording..." = "Запись…";
+"Empty result" = "Пусто";
+"Done" = "Готово";
+"status.ready" = "Готов (удерживайте %@)";
+"status.transcribe_failed" = "Ошибка распознавания: %@";
+"status.mic_error" = "Ошибка микрофона: %@";
+"status.permission_warning" = "⚠ Выдайте Input Monitoring + Accessibility и перезапустите";
+
+/* Hotkey choices */
+"hotkey.right_option" = "Правый Option (⌥)";
+"hotkey.left_option" = "Левый Option (⌥)";
+"hotkey.right_command" = "Правый Command (⌘)";
+"hotkey.left_command" = "Левый Command (⌘)";
+"hotkey.right_control" = "Правый Control (⌃)";
+"hotkey.left_control" = "Левый Control (⌃)";
+"hotkey.right_shift" = "Правый Shift (⇧)";
+"hotkey.left_shift" = "Левый Shift (⇧)";
+"hotkey.fn" = "Fn / 🌐 (может не работать на части клавиатур)";
+
+/* Language choices */
+"language.system" = "Как в системе";
+"language.english" = "English";
+"language.russian" = "Русский";
+"language.chinese_simplified" = "简体中文";

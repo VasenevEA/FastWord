@@ -2,6 +2,9 @@
 FastWord.xcodeproj/
 FastWord/Resources/Info.plist
 
+# Local signing config (per-developer; never commit)
+LocalConfig.xcconfig
+
 # Build outputs
 build/
 DerivedData/
