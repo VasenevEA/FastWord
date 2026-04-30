@@ -5,6 +5,9 @@ FastWord/Resources/Info.plist
 # Local signing config (per-developer; never commit)
 LocalConfig.xcconfig
 
+# Local secrets (API keys, certificates, passwords — never commit)
+.secrets/
+
 # Build outputs
 build/
 DerivedData/

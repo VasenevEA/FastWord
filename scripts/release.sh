@@ -61,6 +61,7 @@ xcodebuild \
     -derivedDataPath "$DERIVED" \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$DEV_ID_IDENTITY" \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
     build | tail -3
 

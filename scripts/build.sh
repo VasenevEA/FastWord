@@ -11,10 +11,16 @@ if ! command -v xcodegen >/dev/null 2>&1; then
 fi
 
 if [[ ! -f LocalConfig.xcconfig ]]; then
-    echo "LocalConfig.xcconfig not found." >&2
-    echo "Copy LocalConfig.xcconfig.example to LocalConfig.xcconfig and set DEVELOPMENT_TEAM." >&2
-    echo "(Find your Team ID at https://developer.apple.com/account → Membership.)" >&2
-    exit 1
+    echo "LocalConfig.xcconfig not found — using ad-hoc signing." >&2
+    echo "  (Local builds will work, but TCC permissions reset on every rebuild." >&2
+    echo "   For stable signing, copy LocalConfig.xcconfig.example to LocalConfig.xcconfig" >&2
+    echo "   and set your DEVELOPMENT_TEAM. Free Apple ID works.)" >&2
+    cat > LocalConfig.xcconfig <<'EOF'
+// Auto-generated fallback for ad-hoc signing.
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+EOF
 fi
 
 xcodegen generate
