@@ -26,7 +26,9 @@ final class AppController: ObservableObject {
 
     private var isRecording = false
     private var pressStartedAt: Date?
-    private let minHoldDuration: TimeInterval = 0.15
+    private let minHoldDuration: TimeInterval = 0.5
+    private let hudDelay: TimeInterval = 0.2
+    private var hudShowWorkItem: DispatchWorkItem?
     private var previewTimer: Timer?
     private var previewInFlight = false
     private var previewToken: UUID?
@@ -81,7 +83,10 @@ final class AppController: ObservableObject {
         let held = pressStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         pressStartedAt = nil
         if held < minHoldDuration {
-            // Treat short tap as cancel — don't transcribe noise.
+            // Treat short tap as cancel — don't transcribe noise, and suppress the HUD if it
+            // hasn't been shown yet.
+            hudShowWorkItem?.cancel()
+            hudShowWorkItem = nil
             stopPreviewTimer()
             _ = recorder.stop()
             isRecording = false
@@ -89,6 +94,8 @@ final class AppController: ObservableObject {
             statusText = readyStatusText()
             return
         }
+        hudShowWorkItem?.cancel()
+        hudShowWorkItem = nil
         stopAndTranscribe()
     }
 
@@ -97,7 +104,14 @@ final class AppController: ObservableObject {
             try recorder.start()
             isRecording = true
             statusText = NSLocalizedString("Recording...", comment: "")
-            hud.show(wide: AppSettings.livePreviewEnabled)
+            // Defer the HUD slightly so an accidental quick tap doesn't flash a panel.
+            // Recording itself starts immediately so the user doesn't lose audio.
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.isRecording else { return }
+                self.hud.show(wide: AppSettings.livePreviewEnabled)
+            }
+            hudShowWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + hudDelay, execute: work)
             // Pre-warm the model so the first transcription after release is instant.
             Task { try? await sidecar.warmup() }
             if AppSettings.livePreviewEnabled {

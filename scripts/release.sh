@@ -70,6 +70,65 @@ if [[ ! -d "$APP_PATH" ]]; then
     exit 1
 fi
 
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv not found. Install with: brew install uv" >&2
+    exit 1
+fi
+
+echo "==> Bundling standalone Python + mlx-whisper into the app"
+APP_PY="$APP_PATH/Contents/Resources/python"
+rm -rf "$APP_PY"
+
+# Ensure a managed (relocatable) Python is installed via uv.
+uv python install 3.11 >/dev/null
+PY_SRC="$(uv python find 3.11 2>/dev/null | xargs -I{} dirname {} | xargs dirname)"
+if [[ ! -d "$PY_SRC" ]] || [[ ! -f "$PY_SRC/bin/python3.11" ]]; then
+    echo "Failed to locate managed Python install at $PY_SRC" >&2
+    exit 1
+fi
+
+# Copy the standalone Python distribution into the bundle (resolving symlinks).
+mkdir -p "$APP_PY"
+rsync -aL "$PY_SRC/" "$APP_PY/"
+
+# Mark this as a regular Python install rather than uv-managed, so pip works.
+rm -f "$APP_PY/lib/python3.11/EXTERNALLY-MANAGED" 2>/dev/null || true
+
+# Install runtime dependencies into the bundled Python via uv (fastest, ignores PEP 668).
+uv pip install --python "$APP_PY/bin/python3" -r "$REPO_ROOT/sidecar/requirements.txt" >/dev/null
+cp "$REPO_ROOT/sidecar/sidecar.py" "$APP_PY/sidecar.py"
+
+echo "==> Downloading Whisper model (~1.5 GB) into the bundle"
+APP_MODELS="$APP_PATH/Contents/Resources/models"
+MODEL_REPO="${FASTWORD_BUNDLE_MODEL:-mlx-community/whisper-large-v3-turbo}"
+MODEL_DIR_NAME="$(echo "$MODEL_REPO" | tr '/' '_')"
+MODEL_LOCAL="$APP_MODELS/$MODEL_DIR_NAME"
+mkdir -p "$APP_MODELS"
+"$APP_PY/bin/python3" -c "
+from huggingface_hub import snapshot_download
+import sys
+path = snapshot_download(repo_id='$MODEL_REPO', local_dir='$MODEL_LOCAL')
+print(path)
+" >/dev/null
+
+# Strip caches, tests, and other non-runtime files to shrink the bundle.
+find "$APP_PY" -type d \( -name "__pycache__" -o -name "tests" -o -name "test" -o -name "*.dist-info" \) -exec rm -rf {} + 2>/dev/null || true
+find "$APP_PY" -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete 2>/dev/null || true
+
+echo "==> Signing every Mach-O binary inside the bundled Python (parallelized)"
+# Find every dylib, .so, and executable file. Sign them in parallel (timestamp
+# server is the slow link, so parallelism helps a lot).
+find "$APP_PY" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -print0 \
+    | xargs -0 -P 8 -n 10 codesign --force --sign "$DEV_ID_IDENTITY" \
+        --timestamp --options=runtime 2>&1 | tail -5
+
+# Re-sign the .app to seal in the new contents.
+echo "==> Re-signing the .app"
+codesign --force --sign "$DEV_ID_IDENTITY" \
+    --timestamp --options=runtime \
+    --entitlements "$REPO_ROOT/FastWord/Resources/FastWord.entitlements" \
+    "$APP_PATH"
+
 echo "==> Verifying signature"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 

@@ -17,19 +17,51 @@ final class SidecarClient {
     private let pendingLock = NSLock()
 
     func start() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let venvPython = "\(home)/.fastword/venv/bin/python3"
-        let scriptPath = "\(home)/.fastword/sidecar/sidecar.py"
+        let fm = FileManager.default
+        var venvPython: String?
+        var scriptPath: String?
 
-        guard FileManager.default.fileExists(atPath: venvPython),
-              FileManager.default.fileExists(atPath: scriptPath) else {
-            NSLog("FastWord: sidecar not installed. Run scripts/bootstrap.sh")
+        // 1. Prefer bundled venv (production: shipped inside the .app).
+        if let resources = Bundle.main.resourcePath {
+            let bundledPython = "\(resources)/python/bin/python3"
+            let bundledScript = "\(resources)/python/sidecar.py"
+            if fm.fileExists(atPath: bundledPython), fm.fileExists(atPath: bundledScript) {
+                venvPython = bundledPython
+                scriptPath = bundledScript
+            }
+        }
+
+        // 2. Fall back to ~/.fastword/venv (development: bootstrap.sh).
+        if venvPython == nil {
+            let home = fm.homeDirectoryForCurrentUser.path
+            let homePython = "\(home)/.fastword/venv/bin/python3"
+            let homeScript = "\(home)/.fastword/sidecar/sidecar.py"
+            if fm.fileExists(atPath: homePython), fm.fileExists(atPath: homeScript) {
+                venvPython = homePython
+                scriptPath = homeScript
+            }
+        }
+
+        guard let pythonExe = venvPython, let script = scriptPath else {
+            NSLog("FastWord: sidecar not installed (no bundled venv, no ~/.fastword/venv). Run scripts/bootstrap.sh")
             return
         }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: venvPython)
-        proc.arguments = [scriptPath]
+        proc.executableURL = URL(fileURLWithPath: pythonExe)
+        proc.arguments = [script]
+
+        // If a bundled model is present, point the sidecar at it (offline-first).
+        if let resources = Bundle.main.resourcePath {
+            let modelsDir = URL(fileURLWithPath: resources).appendingPathComponent("models")
+            if let entries = try? fm.contentsOfDirectory(atPath: modelsDir.path),
+               let first = entries.first(where: { !$0.hasPrefix(".") }) {
+                let fullPath = modelsDir.appendingPathComponent(first).path
+                var env = ProcessInfo.processInfo.environment
+                env["FASTWORD_MODEL"] = fullPath
+                proc.environment = env
+            }
+        }
         let stdin = Pipe(); let stdout = Pipe(); let stderr = Pipe()
         proc.standardInput = stdin
         proc.standardOutput = stdout
