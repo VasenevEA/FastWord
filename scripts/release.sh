@@ -115,6 +115,23 @@ print(path)
 find "$APP_PY" -type d \( -name "__pycache__" -o -name "tests" -o -name "test" -o -name "*.dist-info" \) -exec rm -rf {} + 2>/dev/null || true
 find "$APP_PY" -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete 2>/dev/null || true
 
+# Pip writes console_scripts with absolute shebangs pointing at the build path
+# (leaks /Users/<builder>/... and breaks on the user's machine anyway). We don't
+# call any of these CLI scripts at runtime — sidecar invokes Python directly —
+# so just delete everything in bin/ except the Python interpreters.
+find "$APP_PY/bin" -type f ! -name "python*" -delete 2>/dev/null || true
+
+# Python's _sysconfigdata embeds the build-time install prefix
+# (~/.local/share/uv/python/...). Replace it with a neutral path so the bundle
+# doesn't leak the builder's home directory.
+SYSCFG="$APP_PY/lib/python3.11/_sysconfigdata__darwin_darwin.py"
+if [[ -f "$SYSCFG" ]]; then
+    UV_PY_PREFIX="$(uv python find 3.11 2>/dev/null | xargs dirname | xargs dirname)"
+    if [[ -n "$UV_PY_PREFIX" ]]; then
+        sed -i '' "s|$UV_PY_PREFIX|/usr/local|g" "$SYSCFG" 2>/dev/null || true
+    fi
+fi
+
 echo "==> Signing every Mach-O binary inside the bundled Python (parallelized)"
 # Find every dylib, .so, and executable file. Sign them in parallel (timestamp
 # server is the slow link, so parallelism helps a lot).
