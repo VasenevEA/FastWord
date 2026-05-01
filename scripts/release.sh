@@ -139,6 +139,15 @@ find "$APP_PY" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -prin
     | xargs -0 -P 8 -n 10 codesign --force --sign "$DEV_ID_IDENTITY" \
         --timestamp --options=runtime 2>&1 | tail -5
 
+# Re-sign the Python interpreter binaries with JIT entitlements so numba/llvmlite
+# can allocate executable memory at runtime (otherwise the process is SIGKILL'd
+# by code-signing enforcement).
+echo "==> Adding JIT entitlements to Python interpreters"
+PY_ENTS="$REPO_ROOT/FastWord/Resources/Python.entitlements"
+find "$APP_PY/bin" -type f -name "python*" -print0 \
+    | xargs -0 -n1 codesign --force --sign "$DEV_ID_IDENTITY" \
+        --timestamp --options=runtime --entitlements "$PY_ENTS" 2>&1 | tail -3
+
 # Re-sign the .app to seal in the new contents.
 echo "==> Re-signing the .app"
 codesign --force --sign "$DEV_ID_IDENTITY" \

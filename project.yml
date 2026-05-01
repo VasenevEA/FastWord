@@ -28,6 +28,7 @@ targets:
         CFBundleName: FastWord
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
+        CFBundleIconFile: AppIcon
         CFBundleDevelopmentRegion: en
         CFBundleLocalizations:
           - en
