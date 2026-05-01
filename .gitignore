@@ -37,3 +37,4 @@ venv/
 
 # Logs
 *.log
+.claude/
