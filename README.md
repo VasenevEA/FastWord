@@ -8,6 +8,21 @@ Hold a hotkey, speak, release — your words appear in any focused text field. N
 
 Wispr Flow / Superwhisper / Aiko are great, but they ship audio off your machine, charge a subscription, or both. FastWord is:
 
+### RAM footprint vs Wispr Flow
+
+Measured on the same MacBook (M-series, macOS 26), both apps installed and idle in the menu bar:
+
+| State                  | Wispr Flow      | FastWord       |
+| ---------------------- | --------------- | -------------- |
+| Idle (not dictating)   | **~800 MB**     | **~50 MB**     |
+| Active (transcribing)  | ~1 GB           | ~2 GB          |
+| Architecture           | Electron + cloud transcription | Native Swift + local MLX Whisper |
+| Pricing                | $144/year       | Free, MIT      |
+
+Wispr Flow keeps ~800 MB resident even when you're not dictating because Electron + background JavaScript processes never sleep. FastWord evicts the model from RAM after 10 min of inactivity, so you only pay the memory cost while you're actually speaking. ([Wispr Flow idle RAM is widely reported on Reddit and review sites.](https://www.getvoibe.com/resources/wispr-flow-review/))
+
+
+
 - **100% local.** Audio never leaves your Mac. No cloud, no telemetry, no account.
 - **Fast.** MLX-accelerated `whisper-large-v3-turbo` on Apple Silicon — typically <1s end-to-end after release.
 - **Light when idle.** The model lives in a Python sidecar that **evicts itself from RAM after 10 min of inactivity** (configurable). Your 16GB MacBook keeps its memory.
