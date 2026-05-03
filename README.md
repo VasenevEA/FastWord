@@ -4,6 +4,8 @@ Local, private, push-to-talk dictation for macOS — powered by MLX Whisper runn
 
 Hold a hotkey, speak, release — your words appear in any focused text field. Nothing leaves your Mac.
 
+![FastWord demo — dictating in Russian, English, and Mandarin](docs/demo.gif)
+
 ## Why
 
 Wispr Flow / Superwhisper / Aiko are great, but they ship audio off your machine, charge a subscription, or both. FastWord is:
