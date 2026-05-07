@@ -167,26 +167,21 @@ private struct EqualizerView: View {
 
     private let barCount = 5
     @State private var seeds: [Double] = (0..<5).map { _ in Double.random(in: 0...1) }
-    @State private var phase: Double = 0
-    private let timer = Timer.publish(every: 1.0/30.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(alignment: .center, spacing: 4) {
-            ForEach(0..<barCount, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(barColor)
-                    .frame(width: 6, height: barHeight(for: i))
-                    .animation(.spring(response: 0.18, dampingFraction: 0.55), value: level)
-                    .animation(.spring(response: 0.18, dampingFraction: 0.55), value: phase)
+        // TimelineView pauses automatically when off-screen / window hidden, which
+        // prevents a swarm of catch-up frames after wake-from-sleep that has been
+        // observed to crash SwiftUI.
+        TimelineView(.animation(minimumInterval: 1.0/30.0, paused: mode == .idle)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: 4) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(barColor)
+                        .frame(width: 6, height: barHeight(for: i, phase: phase))
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(timer) { _ in
-            phase += 1.0/30.0
-            // Refresh seeds occasionally so wave shape feels organic.
-            if Int(phase * 30) % 6 == 0 {
-                seeds = seeds.map { _ in Double.random(in: 0...1) }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -198,7 +193,7 @@ private struct EqualizerView: View {
         }
     }
 
-    private func barHeight(for index: Int) -> CGFloat {
+    private func barHeight(for index: Int, phase: Double) -> CGFloat {
         let minH: CGFloat = 4
         let maxH: CGFloat = 28
         if mode == .transcribing {

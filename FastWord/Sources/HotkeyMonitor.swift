@@ -25,6 +25,31 @@ final class HotkeyMonitor {
     }
 
     func start() {
+        installEventTap()
+        // After the system wakes from sleep, the event tap is sometimes left
+        // disabled and macOS does not redeliver tap-disabled events. Re-arm or
+        // recreate it explicitly when we get NSWorkspace.didWakeNotification.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemDidWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func systemDidWake(_ note: Notification) {
+        keyDown = false
+        if let tap = eventTap, CGEvent.tapIsEnabled(tap: tap) == false {
+            CGEvent.tapEnable(tap: tap, enable: true)
+            return
+        }
+        // If the tap is gone or fails to re-enable, rebuild it from scratch.
+        if eventTap == nil {
+            installEventTap()
+        }
+    }
+
+    private func installEventTap() {
         let mask = (1 << CGEventType.flagsChanged.rawValue)
             | (1 << CGEventType.tapDisabledByTimeout.rawValue)
             | (1 << CGEventType.tapDisabledByUserInput.rawValue)
