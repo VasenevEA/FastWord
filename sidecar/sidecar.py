@@ -41,7 +41,7 @@ class ModelHolder:
         self._loaded_at: float = 0.0
         self._mlx_whisper = None
 
-    def transcribe(self, audio: np.ndarray) -> dict[str, Any]:
+    def transcribe(self, audio: np.ndarray, language: str | None = None) -> dict[str, Any]:
         with self._lock:
             if self._mlx_whisper is None:
                 log(f"loading model {MODEL_REPO}")
@@ -50,8 +50,11 @@ class ModelHolder:
                 log("model loaded")
             self._loaded_at = time.time()
             kwargs: dict[str, Any] = {"path_or_hf_repo": MODEL_REPO}
-            if LANGUAGE:
-                kwargs["language"] = LANGUAGE
+            # Per-request language overrides the env var; an empty string means
+            # "auto-detect" so we drop the kwarg in that case.
+            effective_language = language if language is not None else LANGUAGE
+            if effective_language:
+                kwargs["language"] = effective_language
             return self._mlx_whisper.transcribe(audio, **kwargs)
 
     def maybe_evict(self) -> None:
@@ -90,7 +93,9 @@ def handle(req: dict[str, Any], holder: ModelHolder) -> dict[str, Any]:
         audio = decode_pcm(req["audio_b64"])
         if audio.size < 1600:  # under 0.1s, ignore
             return {"id": rid, "text": ""}
-        result = holder.transcribe(audio)
+        # `language` of "" is auto-detect; absent key means "use env default".
+        lang = req.get("language")
+        result = holder.transcribe(audio, language=lang)
         text = (result.get("text") or "").strip()
         return {"id": rid, "text": text}
     except Exception as exc:  # noqa: BLE001

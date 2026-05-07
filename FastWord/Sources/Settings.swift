@@ -5,6 +5,43 @@ enum SettingsKey {
     static let livePreviewEnabled = "livePreviewEnabled"
     static let hotkey = "hotkey"
     static let language = "language"
+    static let transcriptionLanguage = "transcriptionLanguage"
+}
+
+/// Languages the Whisper model recognises. Special "auto" lets the model
+/// auto-detect; the rest are sent as ISO-639-1 codes to the sidecar.
+struct TranscriptionLanguage: Identifiable, Hashable {
+    let code: String  // empty = auto-detect
+    let name: String
+    var id: String { code }
+
+    static let auto = TranscriptionLanguage(code: "", name: "Auto-detect")
+
+    /// Curated short list — the most-used languages. Whisper supports ~99,
+    /// but a giant picker is worse UX than a sensible default plus a few common.
+    static let all: [TranscriptionLanguage] = [
+        .auto,
+        TranscriptionLanguage(code: "en", name: "English"),
+        TranscriptionLanguage(code: "ru", name: "Русский"),
+        TranscriptionLanguage(code: "zh", name: "中文"),
+        TranscriptionLanguage(code: "es", name: "Español"),
+        TranscriptionLanguage(code: "fr", name: "Français"),
+        TranscriptionLanguage(code: "de", name: "Deutsch"),
+        TranscriptionLanguage(code: "it", name: "Italiano"),
+        TranscriptionLanguage(code: "pt", name: "Português"),
+        TranscriptionLanguage(code: "ja", name: "日本語"),
+        TranscriptionLanguage(code: "ko", name: "한국어"),
+        TranscriptionLanguage(code: "ar", name: "العربية"),
+        TranscriptionLanguage(code: "hi", name: "हिन्दी"),
+        TranscriptionLanguage(code: "uk", name: "Українська"),
+        TranscriptionLanguage(code: "pl", name: "Polski"),
+        TranscriptionLanguage(code: "tr", name: "Türkçe"),
+        TranscriptionLanguage(code: "nl", name: "Nederlands"),
+    ]
+
+    static func find(by code: String) -> TranscriptionLanguage {
+        all.first { $0.code == code } ?? .auto
+    }
 }
 
 enum LanguageChoice: String, CaseIterable, Identifiable {
@@ -98,5 +135,10 @@ enum AppSettings {
             UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.hotkey)
             NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
         }
+    }
+
+    static var transcriptionLanguageCode: String {
+        get { UserDefaults.standard.string(forKey: SettingsKey.transcriptionLanguage) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKey.transcriptionLanguage) }
     }
 }

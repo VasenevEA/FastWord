@@ -54,3 +54,8 @@
 "language.english" = "English";
 "language.russian" = "Русский";
 "language.chinese_simplified" = "简体中文";
+
+"Cancelled" = "Cancelled";
+"Transcription language" = "Transcription language";
+"Auto-detect" = "Auto-detect";
+"Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve." = "Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve.";

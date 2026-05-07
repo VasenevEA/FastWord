@@ -118,12 +118,15 @@ final class SidecarClient {
     func transcribe(pcm: Data) async throws -> String {
         guard let stdin = stdinPipe else { throw SidecarError.notRunning }
         let id = UUID().uuidString
-        let req: [String: Any] = [
+        var req: [String: Any] = [
             "id": id,
             "cmd": "transcribe",
             "sample_rate": 16000,
             "audio_b64": pcm.base64EncodedString()
         ]
+        // Empty string means "auto-detect"; sidecar treats it as a flag to drop
+        // the language hint and let Whisper auto-pick.
+        req["language"] = AppSettings.transcriptionLanguageCode
         let line = try JSONSerialization.data(withJSONObject: req) + Data([0x0A])
 
         return try await withCheckedThrowingContinuation { cont in

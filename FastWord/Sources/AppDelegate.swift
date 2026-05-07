@@ -45,6 +45,9 @@ final class AppController: ObservableObject {
         hotkey.onPressEnd = { [weak self] in
             Task { @MainActor in self?.handlePressEnd() }
         }
+        hotkey.onCancel = { [weak self] in
+            Task { @MainActor in self?.handleCancel() }
+        }
         hotkey.onPermissionMissing = { [weak self] in
             Task { @MainActor in
                 self?.statusText = NSLocalizedString("status.permission_warning", comment: "")
@@ -73,9 +76,25 @@ final class AppController: ObservableObject {
         hotkey.stop()
     }
 
+    private var cancelToken: UUID?
+
     private func handlePressStart() {
         pressStartedAt = Date()
         startRecording()
+    }
+
+    private func handleCancel() {
+        // Only cancel when actively recording or transcribing — leave Escape
+        // alone otherwise so it works normally in other apps' UIs.
+        guard isRecording || cancelToken != nil else { return }
+        cancelToken = nil
+        hudShowWorkItem?.cancel()
+        hudShowWorkItem = nil
+        stopPreviewTimer()
+        _ = recorder.stop()
+        isRecording = false
+        hud.hide()
+        statusText = NSLocalizedString("Cancelled", comment: "")
     }
 
     private func handlePressEnd() {
@@ -172,14 +191,18 @@ final class AppController: ObservableObject {
         hud.setTranscribing()
         statusText = NSLocalizedString("Transcribing…", comment: "")
 
+        let token = UUID()
+        cancelToken = token
         Task {
             do {
                 let text = try await sidecar.transcribe(pcm: pcm)
                 await MainActor.run {
-                    self.handleTranscribed(text)
+                    self.handleTranscribed(text, token: token)
                 }
             } catch {
                 await MainActor.run {
+                    guard self.cancelToken == token else { return }
+                    self.cancelToken = nil
                     let format = NSLocalizedString("status.transcribe_failed", comment: "")
                     self.statusText = String(format: format, error.localizedDescription)
                     self.hud.hide()
@@ -188,7 +211,10 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func handleTranscribed(_ text: String) {
+    private func handleTranscribed(_ text: String, token: UUID) {
+        // If user pressed Escape while transcribing, the cancelToken was cleared.
+        guard cancelToken == token else { return }
+        cancelToken = nil
         hud.hide()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

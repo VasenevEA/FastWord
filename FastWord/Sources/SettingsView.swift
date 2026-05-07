@@ -4,6 +4,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.livePreviewEnabled) private var livePreview: Bool = false
     @AppStorage(SettingsKey.hotkey) private var hotkeyRaw: String = HotkeyChoice.rightOption.rawValue
     @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
+    @AppStorage(SettingsKey.transcriptionLanguage) private var transcriptionLangCode: String = ""
     @State private var languageChanged = false
 
     private var hotkey: Binding<HotkeyChoice> {
@@ -45,6 +46,13 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker(LocalizedStringKey("Transcription language"), selection: $transcriptionLangCode) {
+                    ForEach(TranscriptionLanguage.all) { lang in
+                        Text(lang.name).tag(lang.code)
+                    }
+                }
+                .pickerStyle(.menu)
+
                 Toggle(isOn: $livePreview) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(LocalizedStringKey("Live preview while recording"))
@@ -55,6 +63,10 @@ struct SettingsView: View {
                 }
             } header: {
                 Text(LocalizedStringKey("Transcription"))
+            } footer: {
+                Text(LocalizedStringKey("Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

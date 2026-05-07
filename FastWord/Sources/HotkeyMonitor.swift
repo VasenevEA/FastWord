@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 final class HotkeyMonitor {
     var onPressStart: (() -> Void)?
     var onPressEnd: (() -> Void)?
+    var onCancel: (() -> Void)?
     var onPermissionMissing: (() -> Void)?
 
     private(set) var isActive = false
@@ -51,6 +52,7 @@ final class HotkeyMonitor {
 
     private func installEventTap() {
         let mask = (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.tapDisabledByTimeout.rawValue)
             | (1 << CGEventType.tapDisabledByUserInput.rawValue)
         guard let tap = CGEvent.tapCreate(
@@ -64,6 +66,11 @@ final class HotkeyMonitor {
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                     if let tap = monitor.eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
                     monitor.recoverAfterTapReEnable()
+                } else if type == .keyDown {
+                    let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                    if keyCode == 53 /* kVK_Escape */ {
+                        DispatchQueue.main.async { [weak monitor] in monitor?.onCancel?() }
+                    }
                 } else {
                     monitor.handleFlags(event)
                 }

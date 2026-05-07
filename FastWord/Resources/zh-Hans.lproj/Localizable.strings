@@ -54,3 +54,8 @@
 "language.english" = "English";
 "language.russian" = "Русский";
 "language.chinese_simplified" = "简体中文";
+
+"Cancelled" = "已取消";
+"Transcription language" = "转写语言";
+"Auto-detect" = "自动检测";
+"Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve." = "自动检测让 Whisper 自行识别语言。如果您主要使用某一种语言听写,选择该语言能提升质量与速度。";
