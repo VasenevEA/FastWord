@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.hotkey) private var hotkeyRaw: String = HotkeyChoice.rightOption.rawValue
     @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
     @AppStorage(SettingsKey.transcriptionLanguage) private var transcriptionLangCode: String = ""
+    @AppStorage(SettingsKey.idleEviction) private var idleEvictionRaw: String = IdleEvictionChoice.tenMinutes.rawValue
     @State private var languageChanged = false
 
     private var hotkey: Binding<HotkeyChoice> {
@@ -13,6 +14,16 @@ struct SettingsView: View {
             set: { newValue in
                 hotkeyRaw = newValue.rawValue
                 NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
+            }
+        )
+    }
+
+    private var idleEviction: Binding<IdleEvictionChoice> {
+        Binding(
+            get: { IdleEvictionChoice(rawValue: idleEvictionRaw) ?? .tenMinutes },
+            set: { newValue in
+                idleEvictionRaw = newValue.rawValue
+                NotificationCenter.default.post(name: AppSettings.idleEvictionChangedNotification, object: nil)
             }
         )
     }
@@ -65,6 +76,21 @@ struct SettingsView: View {
                 Text(LocalizedStringKey("Transcription"))
             } footer: {
                 Text(LocalizedStringKey("Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker(LocalizedStringKey("Unload model after"), selection: idleEviction) {
+                    ForEach(IdleEvictionChoice.allCases) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                .pickerStyle(.menu)
+            } header: {
+                Text(LocalizedStringKey("Memory"))
+            } footer: {
+                Text(LocalizedStringKey("After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -34,7 +34,15 @@ final class AppController: ObservableObject {
     private var previewToken: UUID?
 
     func start() {
+        Migrations.runIfNeeded()
         history = store.loadAll()
+        sidecar.onCrash = { [weak self] summary in
+            // Surface the head of the failure to the user via the menu.
+            let firstLine = summary.split(separator: "\n").first.map(String.init) ?? summary
+            let format = NSLocalizedString("status.sidecar_error", comment: "")
+            self?.statusText = String(format: format, firstLine)
+            NSLog("FastWord: sidecar failure summary:\n%@", summary)
+        }
         sidecar.start()
         recorder.onLevel = { [weak self] level in
             self?.hud.setLevel(level)
@@ -64,11 +72,29 @@ final class AppController: ObservableObject {
             self?.hotkey.reloadHotkey()
             self?.statusText = self?.readyStatusText() ?? ""
         }
+        NotificationCenter.default.addObserver(
+            forName: AppSettings.idleEvictionChangedNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // The idle-eviction value is read by the sidecar at start-up, so
+            // restart it whenever the user changes the setting.
+            self?.sidecar.restart()
+        }
     }
 
     private func readyStatusText() -> String {
         let format = NSLocalizedString("status.ready", comment: "")
         return String(format: format, AppSettings.hotkey.displayName)
+    }
+
+    func deleteHistoryEntry(_ id: UUID) {
+        store.delete(id)
+        history.removeAll { $0.id == id }
+    }
+
+    func copyEntryToClipboard(_ text: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
     }
 
     func stop() {

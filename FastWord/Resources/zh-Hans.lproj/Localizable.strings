@@ -59,3 +59,17 @@
 "Transcription language" = "转写语言";
 "Auto-detect" = "自动检测";
 "Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve." = "自动检测让 Whisper 自行识别语言。如果您主要使用某一种语言听写,选择该语言能提升质量与速度。";
+"Delete" = "删除";
+"Cancel" = "取消";
+"Delete this transcription?" = "删除这条转写?";
+
+"Memory" = "内存";
+"Unload model after" = "卸载模型时间";
+"After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant." = "经过此空闲时间后,Whisper 模型从内存中卸载。时间短节省内存,时间长则下次听写更快。";
+"idle.one_minute" = "1 分钟";
+"idle.ten_minutes" = "10 分钟";
+"idle.thirty_minutes" = "30 分钟";
+"idle.one_hour" = "1 小时";
+"idle.never" = "永不(始终加载)";
+
+"status.sidecar_error" = "⚠ Sidecar 错误:%@";

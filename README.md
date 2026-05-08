@@ -1,6 +1,6 @@
 # FastWord
 
-Local, private, push-to-talk dictation for macOS — powered by MLX Whisper running entirely on-device.
+Local, private, push-to-talk dictation for macOS — powered by `whisper.cpp` running entirely on-device.
 
 Hold a hotkey, speak, release — your words appear in any focused text field. Nothing leaves your Mac.
 
@@ -10,131 +10,136 @@ Hold a hotkey, speak, release — your words appear in any focused text field. N
 
 Wispr Flow / Superwhisper / Aiko are great, but they ship audio off your machine, charge a subscription, or both. FastWord is:
 
+- **100% local.** Audio never leaves your Mac. No cloud, no telemetry, no account.
+- **Tiny.** ~520 MB DMG (Whisper turbo Q5 model included). No background download on first launch.
+- **Fast.** Native Swift app + native Rust sidecar around `whisper.cpp` with Metal acceleration on Apple Silicon. Sub-second end-to-end.
+- **Light when idle.** The sidecar evicts the model from RAM after configurable idle time (default 10 min). Your MacBook keeps its memory.
+- **Hackable.** Sidecar architecture means you can swap in a different ggml model without touching the Swift app.
+- **Open source, MIT.**
+
 ### RAM footprint vs Wispr Flow
 
-Measured on the same MacBook (M-series, macOS 26), both apps installed and idle in the menu bar:
+Measured on the same MacBook (Apple Silicon, macOS 26), both apps installed:
 
-| State                  | Wispr Flow      | FastWord       |
-| ---------------------- | --------------- | -------------- |
-| Idle (not dictating)   | **~800 MB**     | **~50 MB**     |
-| Active (transcribing)  | ~1 GB           | ~2 GB          |
-| Architecture           | Electron + cloud transcription | Native Swift + local MLX Whisper |
-| Pricing                | $144/year       | Free, MIT      |
+| State                  | Wispr Flow      | FastWord (v0.2)  |
+| ---------------------- | --------------- | ---------------- |
+| Idle (not dictating)   | **~800 MB**     | **~125 MB**      |
+| Active (transcribing)  | ~1 GB           | ~750 MB          |
+| After idle eviction    | ~800 MB         | **~125 MB again** |
+| Architecture           | Electron + cloud transcription | Native Swift + Rust + whisper.cpp |
+| Pricing                | $144/year       | Free, MIT         |
 
-Wispr Flow keeps ~800 MB resident even when you're not dictating because Electron + background JavaScript processes never sleep. FastWord evicts the model from RAM after 10 min of inactivity, so you only pay the memory cost while you're actually speaking. ([Wispr Flow idle RAM is widely reported on Reddit and review sites.](https://www.getvoibe.com/resources/wispr-flow-review/))
-
-
-
-- **100% local.** Audio never leaves your Mac. No cloud, no telemetry, no account.
-- **Fast.** MLX-accelerated `whisper-large-v3-turbo` on Apple Silicon — typically <1s end-to-end after release.
-- **Light when idle.** The model lives in a Python sidecar that **evicts itself from RAM after 10 min of inactivity** (configurable). Your 16GB MacBook keeps its memory.
-- **Hackable.** Sidecar architecture means you can swap to faster-whisper, distil-whisper, or Parakeet without touching the Swift app.
-- **Tiny menu-bar app.** No Dock icon. Push-to-talk HUD with live equalizer.
+Wispr Flow keeps ~800 MB resident even when you're not dictating because Electron + background JavaScript processes never sleep. FastWord drops the model from RAM after the configured idle window, so you only pay the memory cost while you're actually using it. ([Wispr Flow idle RAM is widely reported on Reddit and review sites.](https://www.getvoibe.com/resources/wispr-flow-review/))
 
 ## Requirements
 
-- macOS 13 (Ventura) or later
-- Apple Silicon (M1/M2/M3/M4) — MLX is Apple Silicon only
-- [Homebrew](https://brew.sh)
-- Xcode Command Line Tools (`xcode-select --install`)
-- Python 3.11+ (`brew install python@3.11` if missing)
+- **macOS 13 (Ventura) or later.** Apple Silicon (M-series).
+- For development from source:
+  - [Homebrew](https://brew.sh)
+  - Xcode Command Line Tools (`xcode-select --install`)
+  - [`xcodegen`](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+  - [Rust](https://rustup.rs/) toolchain with the `aarch64-apple-darwin` target
 
 ## Install
 
-Clone and bootstrap:
+### From DMG (recommended)
+
+Download the latest signed and notarized `.dmg` from [Releases](https://github.com/VasenevEA/FastWord/releases), drag `FastWord.app` to `Applications`, and launch. The Whisper turbo Q5 model is bundled inside the app — no first-run download.
+
+### From source
 
 ```bash
 git clone https://github.com/VasenevEA/FastWord.git
 cd FastWord
-brew install xcodegen
+brew install xcodegen rust
 
 # One-time signing setup — copy the example and fill in your Team ID.
 cp LocalConfig.xcconfig.example LocalConfig.xcconfig
 # Edit LocalConfig.xcconfig and set DEVELOPMENT_TEAM = YOUR_TEAM_ID
-# (find it at developer.apple.com → Membership)
 
-./scripts/bootstrap.sh
+# Build the Rust sidecar (downloads & compiles whisper.cpp on first run).
+( cd sidecar-rust && cargo build --release )
+
+# Generate Xcode project and build the app.
 ./scripts/build.sh
 open build/Build/Products/Debug/FastWord.app
 ```
 
-`bootstrap.sh` creates a Python venv at `~/.fastword/venv`, installs `mlx-whisper`, and copies the sidecar script. `build.sh` generates the Xcode project from `project.yml` and builds the app.
+The first launch will download the Whisper Q5 model (~550 MB) into `~/Library/Caches/fastword/models/` if it's not already present.
 
 ## Permissions
 
 On first launch macOS will ask for:
 
 1. **Microphone** — to record your voice.
-2. **Input Monitoring** — so the global hotkey (Right Option) works system-wide.
-3. **Accessibility** — so the transcribed text can be auto-pasted into the focused field.
+2. **Input Monitoring** — so the global hotkey works system-wide.
+3. **Accessibility** — so the transcribed text can be inserted into the focused field.
 
 If a prompt doesn't appear, add the app manually in **System Settings → Privacy & Security**:
 
-- Privacy & Security → Input Monitoring → **+** → select `build/Build/Products/Debug/FastWord.app`
+- Privacy & Security → Input Monitoring → **+** → select FastWord.app
 - Privacy & Security → Accessibility → **+** → same app
 
-After granting, **fully quit and relaunch FastWord** — TCC permissions only apply on a fresh process start.
+After granting, fully quit and relaunch — TCC permissions only apply on a fresh process start.
 
 ## Usage
 
-- **Dictate.** Hold **Right Option (⌥)**, speak, release. Text is pasted at the cursor and saved to history.
-- **No focus?** No problem — the transcript is still saved to history.
-- **History.** Click the menu-bar icon → **Show History**. Searchable, copyable.
+- **Dictate.** Hold the chosen modifier key (default: Right Option ⌥), speak, release. Text is inserted at the cursor and saved to history.
+- **Cancel.** Press **Escape** during recording or transcription to abort and discard the result.
+- **Settings.** Menu-bar icon → **Settings…** (⌘,) — pick your hotkey, transcription language, idle eviction time, and live preview toggle.
+- **History.** Menu-bar icon → **Show History**. Searchable, click rows to copy or delete.
 - **Quit.** Menu-bar icon → **Quit**.
 
 ## Configuration
 
-Set environment variables before launching the app (or wrap in a launcher script):
+Most things are in **Settings**, but the sidecar still honours these env vars:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `FASTWORD_MODEL` | `mlx-community/whisper-large-v3-turbo` | Any MLX-Whisper Hugging Face repo |
-| `FASTWORD_LANGUAGE` | _(auto-detect)_ | e.g. `en`, `ru`, `de` |
-| `FASTWORD_IDLE_EVICT` | `600` | Seconds of inactivity before model is unloaded from RAM |
-
-Models are cached at `~/.cache/huggingface`. The default `turbo` weights are ~1.5 GB.
+| `FASTWORD_MODEL` | _(bundled)_ | Path to a `ggml-*.bin` whisper.cpp model. |
+| `FASTWORD_IDLE_EVICT` | `600` | Seconds of inactivity before the model is dropped from RAM. |
 
 ## Architecture
 
 ```
-┌──────────────────────┐         stdio JSON         ┌──────────────────────┐
-│  FastWord.app        │ ────────────────────────►  │  sidecar.py          │
-│  (SwiftUI, AppKit)   │                            │  (mlx-whisper)       │
-│                      │ ◄────────────────────────  │                      │
-│  - menu bar          │                            │  - lazy-loads model  │
-│  - global hotkey     │                            │  - evicts on idle    │
-│  - audio capture     │                            │                      │
-│  - HUD + history     │                            │                      │
-│  - paste injection   │                            │                      │
-└──────────────────────┘                            └──────────────────────┘
+┌──────────────────────┐         stdio JSON         ┌────────────────────────┐
+│  FastWord.app        │ ────────────────────────►  │  fastword-sidecar      │
+│  (SwiftUI, AppKit)   │                            │  (Rust + whisper.cpp)  │
+│                      │ ◄────────────────────────  │                        │
+│  - menu bar          │                            │  - lazy-loads model    │
+│  - global hotkey     │                            │  - Metal acceleration  │
+│  - audio capture     │                            │  - evicts on idle      │
+│  - HUD + history     │                            │                        │
+│  - paste injection   │                            │                        │
+└──────────────────────┘                            └────────────────────────┘
 ```
 
-- **Swift app** captures 16 kHz mono Float32 PCM via `AVAudioEngine`, ships it base64-encoded to the sidecar over stdin.
-- **Python sidecar** holds the model in RAM between requests, evicts on idle.
-- History is a small SQLite DB at `~/.fastword/history.sqlite`.
+- **Swift app** captures 16 kHz mono Float32 PCM via `AVAudioEngine`, base64-encodes it, and sends a JSON request to the sidecar's stdin.
+- **Rust sidecar** is a single ~1.5 MB binary that wraps `whisper.cpp` (with the Metal backend) via the `whisper-rs` crate. It keeps the model in RAM between requests and evicts on idle.
+- **Insertion path** prefers Accessibility (`kAXSelectedTextAttribute`) so your clipboard isn't touched. Falls back to clipboard + Cmd+V (with full clipboard snapshot/restore) for inputs that don't expose AX.
+- History lives in SQLite at `~/.fastword/history.sqlite`.
 
 ## Where things live
 
 | Path | What |
 | --- | --- |
 | `FastWord/Sources/` | Swift sources |
-| `sidecar/sidecar.py` | MLX Whisper sidecar (line-delimited JSON over stdio) |
-| `scripts/bootstrap.sh` | Sets up `~/.fastword/venv` and installs `mlx-whisper` |
-| `scripts/build.sh` | Generates Xcode project, builds app |
+| `sidecar-rust/` | Rust sidecar (whisper.cpp wrapper) |
+| `scripts/build.sh` | Generates Xcode project, builds the app |
+| `scripts/release.sh` | Builds the Rust sidecar, bundles the model, signs, notarizes, packages a DMG |
 | `project.yml` | xcodegen project definition (source of truth) |
-| `~/.fastword/venv/` | Python venv used by the sidecar |
-| `~/.fastword/sidecar/sidecar.py` | Installed sidecar script |
+| `~/Library/Caches/fastword/models/` | Cached ggml model files (used as fallback if no bundled model) |
 | `~/.fastword/history.sqlite` | Transcription history |
 
 ## Troubleshooting
 
-**Hotkey doesn't trigger anything.** Run `tccutil reset ListenEvent com.fastword.app && tccutil reset Accessibility com.fastword.app`, then re-add the app in System Settings and relaunch.
-
-**Transcription hangs.** Check `~/.fastword/sidecar.log`. If `mlx-whisper` isn't installed in the venv, re-run `./scripts/bootstrap.sh`.
-
-**RAM stays high after dictating.** Wait 10 min — the sidecar evicts the model. Tune with `FASTWORD_IDLE_EVICT`.
+**Hotkey doesn't trigger anything.** Toggle Input Monitoring permission off and back on for FastWord, or run `tccutil reset ListenEvent com.mrv.fastword && tccutil reset Accessibility com.mrv.fastword`, then relaunch.
 
 **Build fails with `xcodegen: command not found`.** `brew install xcodegen`.
+
+**`cargo` not found when running release.sh.** Install Rust via [rustup.rs](https://rustup.rs/).
+
+**Old `~/.fastword/venv/` from v0.1.x.** v0.2.0+ deletes it automatically on first launch. The Python+MLX sidecar is gone.
 
 ## Languages
 
@@ -144,31 +149,27 @@ The interface is localized into:
 - Русский
 - 简体中文
 
-Switch in **Settings → Language**, or set automatically based on your macOS preferences.
+Switch in **Settings → Language**.
+
+The transcription engine itself supports ~99 languages — pick a specific one in **Settings → Transcription language** or leave on "Auto-detect".
 
 ## Release & distribution
 
-To build a notarized DMG for distribution (e.g. via GitHub Releases or your own site):
+To build a notarized DMG for distribution:
 
 1. Have a "Developer ID Application" certificate in your login keychain.
 2. Store notarization credentials once:
    ```bash
    xcrun notarytool store-credentials FASTWORD_NOTARY \
-       --apple-id "you@example.com" \
-       --team-id  "YOUR_TEAM_ID" \
-       --password "xxxx-xxxx-xxxx-xxxx"   # app-specific password from appleid.apple.com
+       --key .secrets/AuthKey_XXXXXXXXXX.p8 \
+       --key-id  "XXXXXXXXXX" \
+       --issuer  "<issuer-uuid>"
    ```
 3. Run:
    ```bash
    ./scripts/release.sh
    ```
-   The signed, notarized DMG lands at `build/release/FastWord-<version>.dmg`.
-
-To publish on GitHub:
-```bash
-gh release create v0.1.0 build/release/FastWord-0.1.0.dmg \
-    --title "FastWord 0.1.0" --generate-notes
-```
+   The signed, notarized DMG lands at `build/release/FastWord-<version>.dmg` (~520 MB with the bundled Q5 model).
 
 ## License
 

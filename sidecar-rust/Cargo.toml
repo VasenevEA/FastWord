@@ -1,0 +1,24 @@
+[package]
+name = "fastword-sidecar"
+version = "0.2.0"
+edition = "2021"
+description = "Native whisper.cpp sidecar for FastWord"
+license = "MIT"
+
+[[bin]]
+name = "fastword-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+whisper-rs = { version = "0.14", features = ["metal"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = "z"        # smaller binary; whisper.cpp itself does the heavy lifting
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

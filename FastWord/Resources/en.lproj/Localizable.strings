@@ -59,3 +59,17 @@
 "Transcription language" = "Transcription language";
 "Auto-detect" = "Auto-detect";
 "Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve." = "Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve.";
+"Delete" = "Delete";
+"Cancel" = "Cancel";
+"Delete this transcription?" = "Delete this transcription?";
+
+"Memory" = "Memory";
+"Unload model after" = "Unload model after";
+"After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant." = "After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant.";
+"idle.one_minute" = "1 minute";
+"idle.ten_minutes" = "10 minutes";
+"idle.thirty_minutes" = "30 minutes";
+"idle.one_hour" = "1 hour";
+"idle.never" = "Never (always loaded)";
+
+"status.sidecar_error" = "⚠ Sidecar error: %@";
