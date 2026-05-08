@@ -6,6 +6,45 @@ enum SettingsKey {
     static let hotkey = "hotkey"
     static let language = "language"
     static let transcriptionLanguage = "transcriptionLanguage"
+    static let idleEviction = "idleEviction"
+}
+
+/// How long the model stays in RAM after the last transcription before being
+/// unloaded. Trade-off: shorter = less idle RAM, longer = no first-use delay.
+enum IdleEvictionChoice: String, CaseIterable, Identifiable {
+    case oneMinute
+    case tenMinutes
+    case thirtyMinutes
+    case oneHour
+    case never
+
+    var id: String { rawValue }
+
+    /// Seconds value sent to the sidecar via FASTWORD_IDLE_EVICT.
+    /// `never` is just a very large number — the sidecar checks "idle > N".
+    var seconds: Int {
+        switch self {
+        case .oneMinute: return 60
+        case .tenMinutes: return 600
+        case .thirtyMinutes: return 1800
+        case .oneHour: return 3600
+        case .never: return 999_999_999
+        }
+    }
+
+    var localizationKey: String {
+        switch self {
+        case .oneMinute: return "idle.one_minute"
+        case .tenMinutes: return "idle.ten_minutes"
+        case .thirtyMinutes: return "idle.thirty_minutes"
+        case .oneHour: return "idle.one_hour"
+        case .never: return "idle.never"
+        }
+    }
+
+    var displayName: String {
+        NSLocalizedString(localizationKey, comment: "")
+    }
 }
 
 /// Languages the Whisper model recognises. Special "auto" lets the model
@@ -120,6 +159,7 @@ enum HotkeyChoice: String, CaseIterable, Identifiable {
 
 enum AppSettings {
     static let hotkeyChangedNotification = Notification.Name("FastWord.hotkeyChanged")
+    static let idleEvictionChangedNotification = Notification.Name("FastWord.idleEvictionChanged")
 
     static var livePreviewEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: SettingsKey.livePreviewEnabled) }
@@ -140,5 +180,16 @@ enum AppSettings {
     static var transcriptionLanguageCode: String {
         get { UserDefaults.standard.string(forKey: SettingsKey.transcriptionLanguage) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.transcriptionLanguage) }
+    }
+
+    static var idleEviction: IdleEvictionChoice {
+        get {
+            let raw = UserDefaults.standard.string(forKey: SettingsKey.idleEviction) ?? ""
+            return IdleEvictionChoice(rawValue: raw) ?? .tenMinutes
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.idleEviction)
+            NotificationCenter.default.post(name: idleEvictionChangedNotification, object: nil)
+        }
     }
 }

@@ -59,3 +59,17 @@
 "Transcription language" = "Язык распознавания";
 "Auto-detect" = "Автоопределение";
 "Auto-detect lets Whisper pick the language. Choose a specific one if you mostly dictate in it — quality and speed improve." = "Автоопределение даёт Whisper самому выбрать язык. Если вы обычно диктуете на одном — выбор конкретного улучшит качество и скорость.";
+"Delete" = "Удалить";
+"Cancel" = "Отмена";
+"Delete this transcription?" = "Удалить эту транскрипцию?";
+
+"Memory" = "Память";
+"Unload model after" = "Выгружать модель через";
+"After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant." = "После такого времени простоя модель Whisper выгружается из RAM. Короче — экономит память, длиннее — следующая диктовка мгновенная.";
+"idle.one_minute" = "1 минуту";
+"idle.ten_minutes" = "10 минут";
+"idle.thirty_minutes" = "30 минут";
+"idle.one_hour" = "1 час";
+"idle.never" = "Никогда (всегда в памяти)";
+
+"status.sidecar_error" = "⚠ Ошибка sidecar: %@";

@@ -7,6 +7,8 @@ enum SidecarError: Error {
 }
 
 final class SidecarClient {
+    var onCrash: ((String) -> Void)?
+
     private var process: Process?
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
@@ -14,54 +16,62 @@ final class SidecarClient {
     private let queue = DispatchQueue(label: "fastword.sidecar")
     private var pending: [String: CheckedContinuation<String, Error>] = [:]
     private var readBuffer = Data()
+    private var stderrBuffer = Data()
     private let pendingLock = NSLock()
+    /// Set to true when caller asked us to stop, so the termination handler
+    /// doesn't surface a fake "crashed" message during a clean shutdown/restart.
+    private var stopping = false
 
     func start() {
+        stopping = false
         let fm = FileManager.default
-        var venvPython: String?
-        var scriptPath: String?
+        var sidecarBin: String?
+        var modelPath: String?
 
-        // 1. Prefer bundled venv (production: shipped inside the .app).
+        // 1. Prefer bundled sidecar binary (production: shipped inside the .app).
         if let resources = Bundle.main.resourcePath {
-            let bundledPython = "\(resources)/python/bin/python3"
-            let bundledScript = "\(resources)/python/sidecar.py"
-            if fm.fileExists(atPath: bundledPython), fm.fileExists(atPath: bundledScript) {
-                venvPython = bundledPython
-                scriptPath = bundledScript
+            let bundled = "\(resources)/fastword-sidecar"
+            if fm.fileExists(atPath: bundled) {
+                sidecarBin = bundled
+                let bundledModel = "\(resources)/models/ggml-large-v3-turbo-q5_0.bin"
+                if fm.fileExists(atPath: bundledModel) {
+                    modelPath = bundledModel
+                }
             }
         }
 
-        // 2. Fall back to ~/.fastword/venv (development: bootstrap.sh).
-        if venvPython == nil {
+        // 2. Fall back to development build under sidecar-rust/target/release.
+        if sidecarBin == nil {
+            // Locate the repo by walking up from the bundle until we find Cargo.toml.
+            let repoCandidate = Self.findRepoRoot()
+            if let repo = repoCandidate {
+                let devBin = "\(repo)/sidecar-rust/target/release/fastword-sidecar"
+                if fm.fileExists(atPath: devBin) {
+                    sidecarBin = devBin
+                }
+            }
+        }
+
+        // 3. Fall back to a model under ~/Library/Caches/fastword if not bundled.
+        if modelPath == nil {
             let home = fm.homeDirectoryForCurrentUser.path
-            let homePython = "\(home)/.fastword/venv/bin/python3"
-            let homeScript = "\(home)/.fastword/sidecar/sidecar.py"
-            if fm.fileExists(atPath: homePython), fm.fileExists(atPath: homeScript) {
-                venvPython = homePython
-                scriptPath = homeScript
+            let cached = "\(home)/Library/Caches/fastword/models/ggml-large-v3-turbo-q5_0.bin"
+            if fm.fileExists(atPath: cached) {
+                modelPath = cached
             }
         }
 
-        guard let pythonExe = venvPython, let script = scriptPath else {
-            NSLog("FastWord: sidecar not installed (no bundled venv, no ~/.fastword/venv). Run scripts/bootstrap.sh")
+        guard let bin = sidecarBin, let model = modelPath else {
+            NSLog("FastWord: sidecar binary or model not found. Reinstall the app.")
             return
         }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: pythonExe)
-        proc.arguments = [script]
-
-        // If a bundled model is present, point the sidecar at it (offline-first).
-        if let resources = Bundle.main.resourcePath {
-            let modelsDir = URL(fileURLWithPath: resources).appendingPathComponent("models")
-            if let entries = try? fm.contentsOfDirectory(atPath: modelsDir.path),
-               let first = entries.first(where: { !$0.hasPrefix(".") }) {
-                let fullPath = modelsDir.appendingPathComponent(first).path
-                var env = ProcessInfo.processInfo.environment
-                env["FASTWORD_MODEL"] = fullPath
-                proc.environment = env
-            }
-        }
+        proc.executableURL = URL(fileURLWithPath: bin)
+        var env = ProcessInfo.processInfo.environment
+        env["FASTWORD_MODEL"] = model
+        env["FASTWORD_IDLE_EVICT"] = String(AppSettings.idleEviction.seconds)
+        proc.environment = env
         let stdin = Pipe(); let stdout = Pipe(); let stderr = Pipe()
         proc.standardInput = stdin
         proc.standardOutput = stdout
@@ -72,11 +82,35 @@ final class SidecarClient {
             guard !data.isEmpty else { return }
             self?.handleStdout(data)
         }
-        stderr.fileHandleForReading.readabilityHandler = { handle in
+        stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            if !data.isEmpty, let s = String(data: data, encoding: .utf8) {
+            guard !data.isEmpty else { return }
+            self?.queue.async {
+                self?.stderrBuffer.append(data)
+                // Cap to avoid unbounded growth; we only ever surface the tail.
+                if let buf = self?.stderrBuffer, buf.count > 16_384 {
+                    self?.stderrBuffer = buf.suffix(8_192)
+                }
+            }
+            if let s = String(data: data, encoding: .utf8) {
                 NSLog("FastWord sidecar: %@", s)
             }
+        }
+
+        proc.terminationHandler = { [weak self] p in
+            guard let self else { return }
+            // Don't fire onCrash during an intentional stop()/restart().
+            if self.stopping { return }
+            let tail = String(data: self.stderrBuffer.suffix(2_048), encoding: .utf8) ?? ""
+            let summary: String
+            if p.terminationReason == .uncaughtSignal {
+                summary = "sidecar crashed (signal \(p.terminationStatus))\n\(tail)"
+            } else if p.terminationStatus != 0 {
+                summary = "sidecar exited with status \(p.terminationStatus)\n\(tail)"
+            } else {
+                summary = "sidecar exited unexpectedly\n\(tail)"
+            }
+            DispatchQueue.main.async { [weak self] in self?.onCrash?(summary) }
         }
 
         do {
@@ -86,13 +120,50 @@ final class SidecarClient {
             self.stdoutPipe = stdout
             self.stderrPipe = stderr
         } catch {
-            NSLog("FastWord: failed to start sidecar: %@", error.localizedDescription)
+            let msg = error.localizedDescription
+            NSLog("FastWord: failed to start sidecar: %@", msg)
+            DispatchQueue.main.async { [weak self] in self?.onCrash?("failed to start sidecar: \(msg)") }
         }
     }
 
     func stop() {
+        stopping = true
         process?.terminate()
         process = nil
+        stdinPipe = nil
+        stdoutPipe = nil
+        stderrPipe = nil
+        stderrBuffer.removeAll(keepingCapacity: false)
+        // Drop pending continuations so callers don't hang forever.
+        pendingLock.lock()
+        let stale = pending
+        pending.removeAll()
+        pendingLock.unlock()
+        for cont in stale.values {
+            cont.resume(throwing: SidecarError.notRunning)
+        }
+    }
+
+    func restart() {
+        stop()
+        stopping = false
+        start()
+    }
+
+    /// Walk up from the running binary until we find sidecar-rust/Cargo.toml.
+    /// Returns the repo root path, or nil if we are running from a bundled
+    /// production build (in /Applications/...).
+    private static func findRepoRoot() -> String? {
+        let fm = FileManager.default
+        var url = Bundle.main.bundleURL
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let cargo = url.appendingPathComponent("sidecar-rust/Cargo.toml").path
+            if fm.fileExists(atPath: cargo) {
+                return url.path
+            }
+        }
+        return nil
     }
 
     func warmup() async throws {
