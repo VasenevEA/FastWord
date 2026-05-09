@@ -73,3 +73,5 @@
 "idle.never" = "Never (always loaded)";
 
 "status.sidecar_error" = "⚠ Sidecar error: %@";
+
+"Audio device changed" = "Audio device changed — recording cancelled";

@@ -47,6 +47,11 @@ final class AppController: ObservableObject {
         recorder.onLevel = { [weak self] level in
             self?.hud.setLevel(level)
         }
+        recorder.onHardwareChange = { [weak self] in
+            // Treat audio device changes (headphones unplugged etc.) as a
+            // forced cancel: drop any buffered audio, hide HUD, reset state.
+            Task { @MainActor in self?.handleHardwareChange() }
+        }
         hotkey.onPressStart = { [weak self] in
             Task { @MainActor in self?.handlePressStart() }
         }
@@ -107,6 +112,19 @@ final class AppController: ObservableObject {
     private func handlePressStart() {
         pressStartedAt = Date()
         startRecording()
+    }
+
+    private func handleHardwareChange() {
+        // The recorder has already cleared its state. We just need to roll
+        // the UI / cancel-token back so we don't paste a half-recording.
+        guard isRecording || cancelToken != nil else { return }
+        cancelToken = nil
+        hudShowWorkItem?.cancel()
+        hudShowWorkItem = nil
+        stopPreviewTimer()
+        isRecording = false
+        hud.hide()
+        statusText = NSLocalizedString("Audio device changed", comment: "")
     }
 
     private func handleCancel() {

@@ -73,3 +73,5 @@
 "idle.never" = "Никогда (всегда в памяти)";
 
 "status.sidecar_error" = "⚠ Ошибка sidecar: %@";
+
+"Audio device changed" = "Аудио-устройство изменилось — запись отменена";

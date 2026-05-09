@@ -73,3 +73,5 @@
 "idle.never" = "永不(始终加载)";
 
 "status.sidecar_error" = "⚠ Sidecar 错误:%@";
+
+"Audio device changed" = "音频设备已更改 — 录音已取消";
