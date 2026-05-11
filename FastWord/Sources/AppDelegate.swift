@@ -50,19 +50,19 @@ final class AppController: ObservableObject {
         recorder.onHardwareChange = { [weak self] in
             // Treat audio device changes (headphones unplugged etc.) as a
             // forced cancel: drop any buffered audio, hide HUD, reset state.
-            Task { @MainActor in self?.handleHardwareChange() }
+            DispatchQueue.main.async { self?.handleHardwareChange() }
         }
         hotkey.onPressStart = { [weak self] in
-            Task { @MainActor in self?.handlePressStart() }
+            DispatchQueue.main.async { self?.handlePressStart() }
         }
         hotkey.onPressEnd = { [weak self] in
-            Task { @MainActor in self?.handlePressEnd() }
+            DispatchQueue.main.async { self?.handlePressEnd() }
         }
         hotkey.onCancel = { [weak self] in
-            Task { @MainActor in self?.handleCancel() }
+            DispatchQueue.main.async { self?.handleCancel() }
         }
         hotkey.onPermissionMissing = { [weak self] in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 self?.statusText = NSLocalizedString("status.permission_warning", comment: "")
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
             }
@@ -192,7 +192,7 @@ final class AppController: ObservableObject {
         previewInFlight = false
         previewTimer?.invalidate()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.firePreview(token: token) }
+            DispatchQueue.main.async { self?.firePreview(token: token) }
         }
     }
 

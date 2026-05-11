@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class HUDController {
     private var window: NSPanel?
     let state = HUDState()
@@ -82,6 +83,7 @@ final class HUDController {
 
 enum HUDMode { case idle, recording, transcribing }
 
+@MainActor
 final class HUDState: ObservableObject {
     @Published var mode: HUDMode = .idle
     @Published var level: Float = 0
