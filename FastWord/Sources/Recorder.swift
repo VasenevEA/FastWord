@@ -13,7 +13,10 @@ final class Recorder {
     /// cancelled.
     var onHardwareChange: (() -> Void)?
 
-    private let engine = AVAudioEngine()
+    /// Rebuilt on every start() so we always grab a fresh inputNode bound to
+    /// the current system default device. Holding a long-lived AVAudioEngine
+    /// across hardware changes leaves a stale inputNode that silently fails.
+    private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var buffer = Data()
     private let targetSampleRate: Double = 16000
@@ -23,8 +26,14 @@ final class Recorder {
     private var isRecording = false
 
     func start() throws {
+        // Tear down any leftover engine so the new one is bound to today's
+        // default input device. Cheap — AVAudioEngine doesn't allocate hardware
+        // until prepare()/start().
+        teardownEngine()
+        let engine = AVAudioEngine()
+        self.engine = engine
         buffer.removeAll(keepingCapacity: true)
-        installConfigChangeObserverIfNeeded()
+        installConfigChangeObserver(for: engine)
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         guard let outputFormat = AVAudioFormat(
@@ -92,21 +101,23 @@ final class Recorder {
         }
     }
 
-    /// Subscribe once for the lifetime of the Recorder. macOS posts this
-    /// notification when the input device changes (headphones plugged / unplugged,
-    /// USB mic dis/connected, sample-rate change, etc). The engine stops itself,
-    /// and any taps already installed are torn down. We must not pretend to
-    /// keep recording — propagate to the controller so it can cancel cleanly.
-    private func installConfigChangeObserverIfNeeded() {
-        guard configChangeObserver == nil else { return }
+    /// macOS posts this notification when the input device changes (headphones
+    /// plugged / unplugged, USB mic dis/connected, sample-rate change). The
+    /// engine stops itself and any installed taps are torn down. We must not
+    /// pretend to keep recording — propagate to the controller so it can cancel
+    /// cleanly and we'll rebuild the engine on the next start().
+    private func installConfigChangeObserver(for engine: AVAudioEngine) {
+        if let old = configChangeObserver {
+            NotificationCenter.default.removeObserver(old)
+        }
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: .main
         ) { [weak self] _ in
             guard let self, self.isRecording else { return }
-            // Engine has already been stopped by AVAudioEngine itself.
             self.isRecording = false
+            self.teardownEngine()
             self.lock.lock()
             self.buffer.removeAll(keepingCapacity: false)
             self.lock.unlock()
@@ -114,10 +125,21 @@ final class Recorder {
         }
     }
 
-    deinit {
+    private func teardownEngine() {
         if let observer = configChangeObserver {
             NotificationCenter.default.removeObserver(observer)
+            configChangeObserver = nil
         }
+        if let engine = engine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        engine = nil
+        converter = nil
+    }
+
+    deinit {
+        teardownEngine()
     }
 
     /// Snapshot the audio captured so far without stopping the recording.
@@ -137,8 +159,7 @@ final class Recorder {
     @discardableResult
     func stop() -> Data? {
         isRecording = false
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        teardownEngine()
         lock.lock()
         let data = buffer
         buffer.removeAll(keepingCapacity: false)
