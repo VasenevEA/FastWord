@@ -82,7 +82,10 @@ final class MediaRemote {
     /// `Bool MRMediaRemoteSendCommand(MRCommand cmd, NSDictionary *userInfo)`.
     private typealias SendCommandFn = @convention(c) (Int32, CFDictionary?) -> Bool
     /// `void MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_queue_t, void (^)(BOOL))`.
-    private typealias IsPlayingFn = @convention(c) (DispatchQueue, @convention(block) (Bool) -> Void) -> Void
+    /// `@escaping` is critical — MediaRemote invokes the callback asynchronously
+    /// from its own queue. Without it the Swift runtime trips
+    /// "non-escaping closure has escaped" and the process is killed with SIGTRAP.
+    private typealias IsPlayingFn = @convention(c) (DispatchQueue, @escaping @convention(block) (Bool) -> Void) -> Void
 
     private let sendCommand: SendCommandFn?
     private let getIsPlaying: IsPlayingFn?
