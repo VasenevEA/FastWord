@@ -87,6 +87,13 @@ final class AppController: ObservableObject {
             // restart it whenever the user changes the setting.
             self?.sidecar.restart()
         }
+        NotificationCenter.default.addObserver(
+            forName: AppSettings.activeModelChangedNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // The model path is resolved at sidecar start, so restart picks
+            // up the user's new selection.
+            self?.sidecar.restart()
+        }
     }
 
     private func readyStatusText() -> String {

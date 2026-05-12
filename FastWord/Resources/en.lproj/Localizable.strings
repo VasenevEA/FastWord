@@ -81,3 +81,19 @@
 "When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends.";
 "audio.off" = "Do nothing";
 "audio.pause_resume" = "Pause / Resume player";
+
+"Models" = "Models";
+"Active" = "Active";
+"Use" = "Use";
+"Download" = "Download";
+"Download additional whisper.cpp models on demand. Larger = higher quality; smaller = faster and less RAM. The bundled model is always available offline." = "Download additional whisper.cpp models on demand. Larger = higher quality; smaller = faster and less RAM. The bundled model is always available offline.";
+"model.tiny.desc" = "Fastest, lowest quality. Good for basic English notes.";
+"model.base.desc" = "Lightweight. Useful on older machines.";
+"model.small.desc" = "Balanced speed / accuracy.";
+"model.medium.desc" = "Solid multilingual quality.";
+"model.turbo_q5.desc" = "Default. Fast, high quality, multilingual.";
+"model.turbo_q8.desc" = "Slightly higher quality than Q5, larger size.";
+"model.turbo_full.desc" = "Full-precision turbo. Highest quality turbo.";
+"model.large_q5.desc" = "Non-turbo large, quantized. Slower than turbo.";
+"model.large_full.desc" = "Best quality, slowest, biggest.";
+"Installed" = "Installed";

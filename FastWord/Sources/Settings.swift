@@ -8,6 +8,7 @@ enum SettingsKey {
     static let transcriptionLanguage = "transcriptionLanguage"
     static let idleEviction = "idleEviction"
     static let audioHandling = "audioHandling"
+    static let activeModel = "activeModel"
 }
 
 /// How FastWord should treat background audio when the user starts dictating.
@@ -178,6 +179,7 @@ enum HotkeyChoice: String, CaseIterable, Identifiable {
 enum AppSettings {
     static let hotkeyChangedNotification = Notification.Name("FastWord.hotkeyChanged")
     static let idleEvictionChangedNotification = Notification.Name("FastWord.idleEvictionChanged")
+    static let activeModelChangedNotification = Notification.Name("FastWord.activeModelChanged")
 
     static var livePreviewEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: SettingsKey.livePreviewEnabled) }
@@ -198,6 +200,17 @@ enum AppSettings {
     static var transcriptionLanguageCode: String {
         get { UserDefaults.standard.string(forKey: SettingsKey.transcriptionLanguage) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.transcriptionLanguage) }
+    }
+
+    /// Filename of the user's chosen model. Empty string means "use the
+    /// bundled default". Storing the filename (not a full path) keeps the
+    /// reference stable across app/model relocations.
+    static var activeModelFilename: String {
+        get { UserDefaults.standard.string(forKey: SettingsKey.activeModel) ?? "" }
+        set {
+            UserDefaults.standard.set(newValue, forKey: SettingsKey.activeModel)
+            NotificationCenter.default.post(name: activeModelChangedNotification, object: nil)
+        }
     }
 
     static var audioHandling: AudioHandlingChoice {

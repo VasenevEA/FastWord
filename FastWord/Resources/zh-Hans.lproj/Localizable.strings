@@ -81,3 +81,19 @@
 "When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "开始听写时,FastWord 可以向当前播放器(Spotify、Music、YouTube…)发送 Play/Pause 媒体按键,录音结束后再次播放。";
 "audio.off" = "不处理";
 "audio.pause_resume" = "暂停 / 恢复播放器";
+
+"Models" = "模型";
+"Active" = "已激活";
+"Use" = "使用";
+"Download" = "下载";
+"Download additional whisper.cpp models on demand. Larger = higher quality; smaller = faster and less RAM. The bundled model is always available offline." = "按需下载更多 whisper.cpp 模型。模型越大,质量越高;越小,速度越快且占用 RAM 越少。内置模型始终可离线使用。";
+"model.tiny.desc" = "最快,质量最低。适用于简短的英文笔记。";
+"model.base.desc" = "轻量级。适合较旧的机器。";
+"model.small.desc" = "速度与精度平衡。";
+"model.medium.desc" = "多语言质量稳定。";
+"model.turbo_q5.desc" = "默认。快速,高质量,多语言。";
+"model.turbo_q8.desc" = "比 Q5 质量略高,体积稍大。";
+"model.turbo_full.desc" = "完整 turbo 精度。turbo 系列最高质量。";
+"model.large_q5.desc" = "非 turbo 的 large,已量化。比 turbo 慢。";
+"model.large_full.desc" = "最高质量,最慢,最大。";
+"Installed" = "已安装";

@@ -97,6 +97,16 @@ struct SettingsView: View {
             }
 
             Section {
+                ModelManagementView()
+            } header: {
+                Text(LocalizedStringKey("Models"))
+            } footer: {
+                Text(LocalizedStringKey("Download additional whisper.cpp models on demand. Larger = higher quality; smaller = faster and less RAM. The bundled model is always available offline."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker(LocalizedStringKey("Background audio"), selection: $audioHandlingRaw) {
                     ForEach(AudioHandlingChoice.allCases) { choice in
                         Text(choice.displayName).tag(choice.rawValue)
@@ -128,7 +138,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 420)
+        .frame(minWidth: 640, idealWidth: 680, minHeight: 600, idealHeight: 720)
     }
 
     private func applyLanguage(_ choice: LanguageChoice) {

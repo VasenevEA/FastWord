@@ -23,7 +23,7 @@ struct FastWordApp: App {
         WindowGroup(LocalizedStringKey("FastWord Settings"), id: "settings") {
             SettingsView()
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 }
 

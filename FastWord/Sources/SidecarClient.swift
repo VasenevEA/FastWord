@@ -26,17 +26,12 @@ final class SidecarClient {
         stopping = false
         let fm = FileManager.default
         var sidecarBin: String?
-        var modelPath: String?
 
         // 1. Prefer bundled sidecar binary (production: shipped inside the .app).
         if let resources = Bundle.main.resourcePath {
             let bundled = "\(resources)/fastword-sidecar"
             if fm.fileExists(atPath: bundled) {
                 sidecarBin = bundled
-                let bundledModel = "\(resources)/models/ggml-large-v3-turbo-q5_0.bin"
-                if fm.fileExists(atPath: bundledModel) {
-                    modelPath = bundledModel
-                }
             }
         }
 
@@ -52,10 +47,13 @@ final class SidecarClient {
             }
         }
 
-        // 3. Fall back to a model under ~/Library/Caches/fastword if not bundled.
+        // Resolve the model path through ModelStorage — picks the user-selected
+        // model if downloaded, otherwise the bundled fallback. As a last
+        // resort, an old ~/Library/Caches/fastword copy from earlier dev builds.
+        var modelPath = ModelStorage.activeModelPath()
         if modelPath == nil {
             let home = fm.homeDirectoryForCurrentUser.path
-            let cached = "\(home)/Library/Caches/fastword/models/ggml-large-v3-turbo-q5_0.bin"
+            let cached = "\(home)/Library/Caches/fastword/models/\(ModelCatalog.bundledFilename)"
             if fm.fileExists(atPath: cached) {
                 modelPath = cached
             }
