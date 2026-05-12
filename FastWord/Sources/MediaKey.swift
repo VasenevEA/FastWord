@@ -15,13 +15,29 @@ import AppKit
 ///      that removes it).
 enum MediaKey {
 
-    static func playPause() {
-        if MediaRemote.shared.sendTogglePlayPause() {
-            return
-        }
-        // Fallback for if the private framework symbol disappears.
+    /// Resume playback (only meaningful if we previously paused something).
+    static func play() {
+        if MediaRemote.shared.sendPlay() { return }
+        // Best-effort fallback: a toggle keystroke. If nothing was playing this
+        // is a no-op; if the user manually paused / resumed in between we may
+        // get it wrong, but that's already the case for the fallback path.
         postNXSystemDefined(downFlags: 0xa)
         postNXSystemDefined(downFlags: 0xb)
+    }
+
+    /// Pause whatever is currently playing.
+    static func pause() {
+        if MediaRemote.shared.sendPause() { return }
+        postNXSystemDefined(downFlags: 0xa)
+        postNXSystemDefined(downFlags: 0xb)
+    }
+
+    /// Asks the system whether any app is currently playing audio that the
+    /// 'Now Playing' system recognises (Spotify, Music, Safari/Chrome web
+    /// media, podcast apps). Used to avoid starting playback from silence
+    /// when the user toggles dictation while nothing is actually playing.
+    static func isNowPlaying() async -> Bool {
+        await MediaRemote.shared.isNowPlaying()
     }
 
     // MARK: - NX_KEYTYPE_PLAY via NSEvent.systemDefined (fallback)
@@ -65,8 +81,11 @@ final class MediaRemote {
 
     /// `Bool MRMediaRemoteSendCommand(MRCommand cmd, NSDictionary *userInfo)`.
     private typealias SendCommandFn = @convention(c) (Int32, CFDictionary?) -> Bool
+    /// `void MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_queue_t, void (^)(BOOL))`.
+    private typealias IsPlayingFn = @convention(c) (DispatchQueue, @convention(block) (Bool) -> Void) -> Void
 
     private let sendCommand: SendCommandFn?
+    private let getIsPlaying: IsPlayingFn?
 
     private init() {
         let path = "/System/Library/PrivateFrameworks/MediaRemote.framework"
@@ -74,20 +93,43 @@ final class MediaRemote {
             kCFAllocatorDefault, NSURL(fileURLWithPath: path) as CFURL
         ) else {
             self.sendCommand = nil
+            self.getIsPlaying = nil
             return
         }
-        guard let raw = CFBundleGetFunctionPointerForName(
-            bundle, "MRMediaRemoteSendCommand" as CFString
-        ) else {
+        if let raw = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSendCommand" as CFString) {
+            self.sendCommand = unsafeBitCast(raw, to: SendCommandFn.self)
+        } else {
             self.sendCommand = nil
-            return
         }
-        self.sendCommand = unsafeBitCast(raw, to: SendCommandFn.self)
+        if let raw = CFBundleGetFunctionPointerForName(
+            bundle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying" as CFString
+        ) {
+            self.getIsPlaying = unsafeBitCast(raw, to: IsPlayingFn.self)
+        } else {
+            self.getIsPlaying = nil
+        }
     }
 
     @discardableResult
-    func sendTogglePlayPause() -> Bool {
+    func sendPlay() -> Bool {
         guard let fn = sendCommand else { return false }
-        return fn(Command.togglePlayPause.rawValue, nil)
+        return fn(Command.play.rawValue, nil)
+    }
+
+    @discardableResult
+    func sendPause() -> Bool {
+        guard let fn = sendCommand else { return false }
+        return fn(Command.pause.rawValue, nil)
+    }
+
+    /// Async wrapper over the callback-based isPlaying query. Returns false
+    /// if the private symbol can't be resolved.
+    func isNowPlaying() async -> Bool {
+        guard let fn = getIsPlaying else { return false }
+        return await withCheckedContinuation { continuation in
+            fn(DispatchQueue.global(qos: .userInteractive)) { playing in
+                continuation.resume(returning: playing)
+            }
+        }
     }
 }

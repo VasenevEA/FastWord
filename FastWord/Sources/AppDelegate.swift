@@ -156,7 +156,7 @@ final class AppController: ObservableObject {
     private func resumeMediaIfPaused() {
         guard sentMediaPause else { return }
         sentMediaPause = false
-        MediaKey.playPause()
+        MediaKey.play()
     }
 
     private func handlePressEnd() {
@@ -187,10 +187,16 @@ final class AppController: ObservableObject {
             isRecording = true
             statusText = NSLocalizedString("Recording...", comment: "")
             // Optionally pause whatever's currently playing so it doesn't leak
-            // into the microphone.
+            // into the microphone. Only fires if something is actually playing
+            // right now — otherwise a 'toggle' would start music from silence.
             if AppSettings.audioHandling == .pauseResume {
-                MediaKey.playPause()
-                sentMediaPause = true
+                Task { @MainActor in
+                    guard self.isRecording else { return }
+                    let playing = await MediaKey.isNowPlaying()
+                    guard self.isRecording, playing else { return }
+                    MediaKey.pause()
+                    self.sentMediaPause = true
+                }
             }
             // Defer the HUD slightly so an accidental quick tap doesn't flash a panel.
             // Recording itself starts immediately so the user doesn't lose audio.
