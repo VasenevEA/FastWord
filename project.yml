@@ -26,8 +26,8 @@ targets:
         NSMicrophoneUsageDescription: FastWord needs microphone access to transcribe your voice.
         NSAppleEventsUsageDescription: FastWord uses input events to paste transcribed text.
         CFBundleName: FastWord
-        CFBundleShortVersionString: "0.2.3"
-        CFBundleVersion: "6"
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "7"
         CFBundleIconFile: AppIcon
         CFBundleDevelopmentRegion: en
         CFBundleLocalizations:

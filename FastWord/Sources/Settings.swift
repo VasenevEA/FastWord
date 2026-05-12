@@ -7,6 +7,24 @@ enum SettingsKey {
     static let language = "language"
     static let transcriptionLanguage = "transcriptionLanguage"
     static let idleEviction = "idleEviction"
+    static let audioHandling = "audioHandling"
+}
+
+/// How FastWord should treat background audio when the user starts dictating.
+enum AudioHandlingChoice: String, CaseIterable, Identifiable {
+    case off
+    case pauseResume
+
+    var id: String { rawValue }
+
+    var localizationKey: String {
+        switch self {
+        case .off: return "audio.off"
+        case .pauseResume: return "audio.pause_resume"
+        }
+    }
+
+    var displayName: String { NSLocalizedString(localizationKey, comment: "") }
 }
 
 /// How long the model stays in RAM after the last transcription before being
@@ -180,6 +198,14 @@ enum AppSettings {
     static var transcriptionLanguageCode: String {
         get { UserDefaults.standard.string(forKey: SettingsKey.transcriptionLanguage) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.transcriptionLanguage) }
+    }
+
+    static var audioHandling: AudioHandlingChoice {
+        get {
+            let raw = UserDefaults.standard.string(forKey: SettingsKey.audioHandling) ?? ""
+            return AudioHandlingChoice(rawValue: raw) ?? .off
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.audioHandling) }
     }
 
     static var idleEviction: IdleEvictionChoice {

@@ -75,3 +75,9 @@
 "status.sidecar_error" = "⚠ Sidecar error: %@";
 
 "Audio device changed" = "Audio device changed — recording cancelled";
+
+"Audio" = "Audio";
+"Background audio" = "Background audio";
+"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends.";
+"audio.off" = "Do nothing";
+"audio.pause_resume" = "Pause / Resume player";

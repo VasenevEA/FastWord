@@ -32,6 +32,9 @@ final class AppController: ObservableObject {
     private var previewTimer: Timer?
     private var previewInFlight = false
     private var previewToken: UUID?
+    /// Tracks whether we sent a media-pause when this recording started, so
+    /// we know whether to resume on stop/cancel.
+    private var sentMediaPause = false
 
     func start() {
         Migrations.runIfNeeded()
@@ -124,6 +127,7 @@ final class AppController: ObservableObject {
         stopPreviewTimer()
         isRecording = false
         hud.hide()
+        resumeMediaIfPaused()
         statusText = NSLocalizedString("Audio device changed", comment: "")
     }
 
@@ -138,7 +142,14 @@ final class AppController: ObservableObject {
         _ = recorder.stop()
         isRecording = false
         hud.hide()
+        resumeMediaIfPaused()
         statusText = NSLocalizedString("Cancelled", comment: "")
+    }
+
+    private func resumeMediaIfPaused() {
+        guard sentMediaPause else { return }
+        sentMediaPause = false
+        MediaKey.playPause()
     }
 
     private func handlePressEnd() {
@@ -154,6 +165,7 @@ final class AppController: ObservableObject {
             _ = recorder.stop()
             isRecording = false
             hud.hide()
+            resumeMediaIfPaused()
             statusText = readyStatusText()
             return
         }
@@ -167,6 +179,12 @@ final class AppController: ObservableObject {
             try recorder.start()
             isRecording = true
             statusText = NSLocalizedString("Recording...", comment: "")
+            // Optionally pause whatever's currently playing so it doesn't leak
+            // into the microphone.
+            if AppSettings.audioHandling == .pauseResume {
+                MediaKey.playPause()
+                sentMediaPause = true
+            }
             // Defer the HUD slightly so an accidental quick tap doesn't flash a panel.
             // Recording itself starts immediately so the user doesn't lose audio.
             let work = DispatchWorkItem { [weak self] in
@@ -229,9 +247,14 @@ final class AppController: ObservableObject {
         guard let pcm = recorder.stop() else {
             isRecording = false
             hud.hide()
+            resumeMediaIfPaused()
             return
         }
         isRecording = false
+        // Resume the player as soon as the microphone is closed — no point in
+        // keeping it muted while we run inference, the audio is already in our
+        // buffer.
+        resumeMediaIfPaused()
         hud.setTranscribing()
         statusText = NSLocalizedString("Transcribing…", comment: "")
 
@@ -250,6 +273,7 @@ final class AppController: ObservableObject {
                     let format = NSLocalizedString("status.transcribe_failed", comment: "")
                     self.statusText = String(format: format, error.localizedDescription)
                     self.hud.hide()
+                    self.resumeMediaIfPaused()
                 }
             }
         }
@@ -260,6 +284,7 @@ final class AppController: ObservableObject {
         guard cancelToken == token else { return }
         cancelToken = nil
         hud.hide()
+        resumeMediaIfPaused()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             statusText = NSLocalizedString("Empty result", comment: "")

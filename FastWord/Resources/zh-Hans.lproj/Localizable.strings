@@ -75,3 +75,9 @@
 "status.sidecar_error" = "⚠ Sidecar 错误:%@";
 
 "Audio device changed" = "音频设备已更改 — 录音已取消";
+
+"Audio" = "音频";
+"Background audio" = "后台音频";
+"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "开始听写时,FastWord 可以向当前播放器(Spotify、Music、YouTube…)发送 Play/Pause 媒体按键,录音结束后再次播放。";
+"audio.off" = "不处理";
+"audio.pause_resume" = "暂停 / 恢复播放器";

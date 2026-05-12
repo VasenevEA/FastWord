@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
     @AppStorage(SettingsKey.transcriptionLanguage) private var transcriptionLangCode: String = ""
     @AppStorage(SettingsKey.idleEviction) private var idleEvictionRaw: String = IdleEvictionChoice.tenMinutes.rawValue
+    @AppStorage(SettingsKey.audioHandling) private var audioHandlingRaw: String = AudioHandlingChoice.off.rawValue
     @State private var languageChanged = false
 
     private var hotkey: Binding<HotkeyChoice> {
@@ -91,6 +92,21 @@ struct SettingsView: View {
                 Text(LocalizedStringKey("Memory"))
             } footer: {
                 Text(LocalizedStringKey("After this much idle time the Whisper model is dropped from RAM. Shorter saves memory, longer keeps the next dictation instant."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker(LocalizedStringKey("Background audio"), selection: $audioHandlingRaw) {
+                    ForEach(AudioHandlingChoice.allCases) { choice in
+                        Text(choice.displayName).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+            } header: {
+                Text(LocalizedStringKey("Audio"))
+            } footer: {
+                Text(LocalizedStringKey("When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

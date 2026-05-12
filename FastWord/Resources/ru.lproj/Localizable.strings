@@ -75,3 +75,9 @@
 "status.sidecar_error" = "⚠ Ошибка sidecar: %@";
 
 "Audio device changed" = "Аудио-устройство изменилось — запись отменена";
+
+"Audio" = "Аудио";
+"Background audio" = "Фоновое аудио";
+"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "Когда начинается диктовка, FastWord может отправить Play/Pause активному плееру (Spotify, Music, YouTube…) и снова запустить его после записи.";
+"audio.off" = "Не трогать";
+"audio.pause_resume" = "Ставить плеер на паузу";
