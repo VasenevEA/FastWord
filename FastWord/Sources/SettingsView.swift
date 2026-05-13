@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.transcriptionLanguage) private var transcriptionLangCode: String = ""
     @AppStorage(SettingsKey.idleEviction) private var idleEvictionRaw: String = IdleEvictionChoice.tenMinutes.rawValue
     @AppStorage(SettingsKey.audioHandling) private var audioHandlingRaw: String = AudioHandlingChoice.off.rawValue
+    @AppStorage(SettingsKey.skipEmpty) private var skipEmpty: Bool = true
+    @AppStorage(SettingsKey.cleanupEnabled) private var cleanupEnabled: Bool = true
     @State private var languageChanged = false
 
     private var hotkey: Binding<HotkeyChoice> {
@@ -64,6 +66,24 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+
+                Toggle(isOn: $skipEmpty) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LocalizedStringKey("Skip empty recordings"))
+                        Text(LocalizedStringKey("If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: $cleanupEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LocalizedStringKey("Clean up transcripts"))
+                        Text(LocalizedStringKey("Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 Toggle(isOn: $livePreview) {
                     VStack(alignment: .leading, spacing: 2) {

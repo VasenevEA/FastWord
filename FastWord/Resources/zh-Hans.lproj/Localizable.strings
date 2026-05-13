@@ -100,3 +100,8 @@
 
 "audio.mute_system" = "静音系统音量";
 "audio.footer" = "“暂停 / 恢复播放器”适用于 Spotify、Apple Music、播客等已注册到系统 Now Playing 的播放器。浏览器中的 YouTube 请选择“静音系统音量”——听写期间将系统音量降为 0,结束后恢复。";
+
+"Skip empty recordings" = "跳过空白录音";
+"If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "若 Whisper 认为录音中没有语音,则不粘贴任何内容。可拦截误触和静音片段。";
+"Clean up transcripts" = "清理转写文本";
+"Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "移除 Whisper 常见幻觉(“Subtitles by Amara.org”、“Подписывайтесь на канал”),合并重复词,去除前导标点。";

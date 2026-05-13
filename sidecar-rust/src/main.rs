@@ -30,6 +30,9 @@ struct Request {
     audio_b64: Option<String>,
     #[serde(default)]
     language: Option<String>,
+    /// Whisper.cpp no-speech threshold (0.0 disables, default 0.6).
+    #[serde(default)]
+    no_speech_thold: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,7 +81,12 @@ impl ModelHolder {
         Ok(self.ctx.as_ref().unwrap())
     }
 
-    fn transcribe(&mut self, audio: &[f32], language: Option<&str>) -> Result<String> {
+    fn transcribe(
+        &mut self,
+        audio: &[f32],
+        language: Option<&str>,
+        no_speech_thold: f32,
+    ) -> Result<String> {
         let ctx = self.ensure_loaded()?;
         let mut state = ctx.create_state().context("create state")?;
 
@@ -88,6 +96,12 @@ impl ModelHolder {
         params.set_print_special(false);
         params.set_print_timestamps(false);
         params.set_n_threads(num_cpus_or_default());
+        // Whisper's own estimate of how likely a segment is "no speech"; if
+        // the probability exceeds this threshold, the segment is dropped.
+        // Default is 0.6; the caller can tune from the Swift side.
+        if no_speech_thold > 0.0 {
+            params.set_no_speech_thold(no_speech_thold);
+        }
         if let Some(lang) = language {
             if !lang.is_empty() {
                 params.set_language(Some(lang));
@@ -144,7 +158,7 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
                 let mut h = holder.lock().unwrap();
-                let _ = h.transcribe(&silence, None)?;
+                let _ = h.transcribe(&silence, None, 0.0)?;
                 Ok(String::new())
             }
             "transcribe" => {
@@ -156,8 +170,9 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
                 if audio.len() < 1600 {
                     return Ok(String::new());
                 }
+                let thold = req.no_speech_thold.unwrap_or(0.6);
                 let mut h = holder.lock().unwrap();
-                h.transcribe(&audio, req.language.as_deref())
+                h.transcribe(&audio, req.language.as_deref(), thold)
             }
             other => Err(anyhow!("unknown cmd: {other}")),
         }

@@ -100,3 +100,7 @@
 
 "audio.mute_system" = "Mute system audio";
 "audio.footer" = "‘Pause / Resume player’ works for Spotify, Apple Music, podcast apps and other Now-Playing-aware players. For YouTube in a browser, pick ‘Mute system audio’ — it lowers your system volume to 0 while you dictate and restores it after.";
+"Skip empty recordings" = "Skip empty recordings";
+"If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips.";
+"Clean up transcripts" = "Clean up transcripts";
+"Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation.";

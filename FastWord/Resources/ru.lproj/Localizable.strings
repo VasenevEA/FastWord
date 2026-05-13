@@ -100,3 +100,8 @@
 
 "audio.mute_system" = "Мьютить системный звук";
 "audio.footer" = "«Ставить плеер на паузу» работает для Spotify, Apple Music, подкаст-приложений и других плееров, которые регистрируются в системном Now Playing. Для YouTube в браузере выбирай «Мьютить системный звук» — на время диктовки громкость становится 0, потом восстанавливается.";
+
+"Skip empty recordings" = "Пропускать пустые записи";
+"If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "Если Whisper считает, что в клипе нет речи, ничего не вставлять. Ловит случайные тапы и тихие записи.";
+"Clean up transcripts" = "Чистить транскрипцию";
+"Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "Убирать известные галлюцинации Whisper («Subtitles by Amara.org», «Подписывайтесь на канал»), схлопывать повторы, обрезать ведущую пунктуацию.";

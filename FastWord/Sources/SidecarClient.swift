@@ -196,6 +196,10 @@ final class SidecarClient {
         // Empty string means "auto-detect"; sidecar treats it as a flag to drop
         // the language hint and let Whisper auto-pick.
         req["language"] = AppSettings.transcriptionLanguageCode
+        // When Skip-empty is on, push whisper's own no-speech filter slightly
+        // tighter than the default 0.6 so it drops more clearly-silent clips
+        // before they hallucinate. 0.0 disables the filter entirely.
+        req["no_speech_thold"] = AppSettings.skipEmpty ? 0.6 : 0.0
         let line = try JSONSerialization.data(withJSONObject: req) + Data([0x0A])
 
         return try await withCheckedThrowingContinuation { cont in

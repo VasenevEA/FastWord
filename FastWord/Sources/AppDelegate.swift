@@ -326,7 +326,12 @@ final class AppController: ObservableObject {
         cancelToken = nil
         hud.hide()
         resumeMediaIfPaused()
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Programmatic post-processing: strip well-known Whisper hallucinations
+        // and repeat loops before anything sees the text.
+        let polished = AppSettings.cleanupEnabled
+            ? TranscriptionPostProcessor.clean(text)
+            : text
+        let trimmed = polished.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             statusText = NSLocalizedString("Empty result", comment: "")
             return

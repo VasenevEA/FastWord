@@ -9,6 +9,8 @@ enum SettingsKey {
     static let idleEviction = "idleEviction"
     static let audioHandling = "audioHandling"
     static let activeModel = "activeModel"
+    static let skipEmpty = "skipEmpty"
+    static let cleanupEnabled = "cleanupEnabled"
 }
 
 /// How FastWord should treat background audio when the user starts dictating.
@@ -221,6 +223,28 @@ enum AppSettings {
             return AudioHandlingChoice(rawValue: raw) ?? .off
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.audioHandling) }
+    }
+
+    /// When true, the sidecar uses a stricter no-speech threshold and the
+    /// post-processor's guardrails kick in; clearly-silent recordings come
+    /// back as an empty string and are not pasted.
+    static var skipEmpty: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: SettingsKey.skipEmpty) == nil { return true }
+            return UserDefaults.standard.bool(forKey: SettingsKey.skipEmpty)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKey.skipEmpty) }
+    }
+
+    /// When true, run the programmatic post-processor on every transcript
+    /// (strip known YouTube-credit-style hallucinations, collapse repeated
+    /// words, trim leading punctuation noise).
+    static var cleanupEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: SettingsKey.cleanupEnabled) == nil { return true }
+            return UserDefaults.standard.bool(forKey: SettingsKey.cleanupEnabled)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKey.cleanupEnabled) }
     }
 
     static var idleEviction: IdleEvictionChoice {
