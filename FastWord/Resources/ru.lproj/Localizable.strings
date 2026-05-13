@@ -105,3 +105,14 @@
 "If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "Если Whisper считает, что в клипе нет речи, ничего не вставлять. Ловит случайные тапы и тихие записи.";
 "Clean up transcripts" = "Чистить транскрипцию";
 "Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "Убирать известные галлюцинации Whisper («Subtitles by Amara.org», «Подписывайтесь на канал»), схлопывать повторы, обрезать ведущую пунктуацию.";
+
+"Hold the chosen key (or combo) to record. Release to transcribe and paste." = "Удерживайте выбранную клавишу (или комбо) для записи. Отпустите — текст распознается и вставится.";
+"Require a second key (combo)" = "Требовать вторую клавишу (комбо)";
+"Recording starts only when both keys are held together." = "Запись начинается только когда обе клавиши держатся одновременно.";
+"Second key" = "Вторая клавиша";
+
+"Use a second key" = "Использовать вторую клавишу";
+"Bind a second modifier. Useful when you switch between keyboards that have different modifier keys (e.g. one has ⌥, the other has ⌃)." = "Привязать второй modifier. Полезно, если переключаешься между клавиатурами с разными доступными клавишами (например на одной нет ⌥, на другой нет ⌃).";
+"Combo mode" = "Режим";
+"combo.either" = "Любая из двух клавиш";
+"combo.both" = "Обе клавиши одновременно";

@@ -104,3 +104,14 @@
 "If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips.";
 "Clean up transcripts" = "Clean up transcripts";
 "Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation.";
+
+"Hold the chosen key (or combo) to record. Release to transcribe and paste." = "Hold the chosen key (or combo) to record. Release to transcribe and paste.";
+"Require a second key (combo)" = "Require a second key (combo)";
+"Recording starts only when both keys are held together." = "Recording starts only when both keys are held together.";
+"Second key" = "Second key";
+
+"Use a second key" = "Use a second key";
+"Bind a second modifier. Useful when you switch between keyboards that have different modifier keys (e.g. one has ⌥, the other has ⌃)." = "Bind a second modifier. Useful when you switch between keyboards that have different modifier keys (e.g. one has ⌥, the other has ⌃).";
+"Combo mode" = "Combo mode";
+"combo.either" = "Either key alone";
+"combo.both" = "Both keys held together";

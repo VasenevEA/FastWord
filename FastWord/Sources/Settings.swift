@@ -4,6 +4,8 @@ import Foundation
 enum SettingsKey {
     static let livePreviewEnabled = "livePreviewEnabled"
     static let hotkey = "hotkey"
+    static let hotkeySecondary = "hotkeySecondary"
+    static let hotkeyUseCombo = "hotkeyUseCombo"
     static let language = "language"
     static let transcriptionLanguage = "transcriptionLanguage"
     static let idleEviction = "idleEviction"
@@ -104,6 +106,43 @@ struct TranscriptionLanguage: Identifiable, Hashable {
     static func find(by code: String) -> TranscriptionLanguage {
         all.first { $0.code == code } ?? .auto
     }
+
+    /// Returns the system's primary language code mapped onto one of our
+    /// supported entries (e.g. "en-US" → "en"), or .auto if the system
+    /// language is something we don't list explicitly.
+    static func systemDefault() -> TranscriptionLanguage {
+        guard let raw = Locale.preferredLanguages.first else { return .auto }
+        let code = String(raw.prefix(2)).lowercased()
+        return find(by: code)
+    }
+
+    /// Short hint phrase in the given language, used as Whisper's
+    /// `initial_prompt` when the user keeps the picker on "Auto-detect".
+    /// Source of the trick: Superwhisper's documented vocabulary-hint
+    /// approach — Whisper biases toward the language of words it sees in
+    /// the prompt, which dramatically reduces the rate of detecting short
+    /// non-English clips as English.
+    static func promptHint(forCode code: String) -> String? {
+        switch code {
+        case "ru": return "Это голосовая заметка на русском."
+        case "en": return "This is a voice note in English."
+        case "zh": return "这是一条中文语音记录。"
+        case "es": return "Esta es una nota de voz en español."
+        case "fr": return "Ceci est une note vocale en français."
+        case "de": return "Dies ist eine Sprachnotiz auf Deutsch."
+        case "it": return "Questa è una nota vocale in italiano."
+        case "pt": return "Esta é uma nota de voz em português."
+        case "ja": return "これは日本語の音声メモです。"
+        case "ko": return "이것은 한국어 음성 메모입니다."
+        case "ar": return "هذه ملاحظة صوتية باللغة العربية."
+        case "hi": return "यह हिंदी में एक वॉइस नोट है।"
+        case "uk": return "Це голосова нотатка українською."
+        case "pl": return "To jest notatka głosowa po polsku."
+        case "tr": return "Bu Türkçe bir sesli nottur."
+        case "nl": return "Dit is een spraaknotitie in het Nederlands."
+        default: return nil
+        }
+    }
 }
 
 enum LanguageChoice: String, CaseIterable, Identifiable {
@@ -124,6 +163,21 @@ enum LanguageChoice: String, CaseIterable, Identifiable {
         }
         return NSLocalizedString(key, comment: "")
     }
+}
+
+/// How a configured second key relates to the primary one.
+enum HotkeyComboMode: String, CaseIterable, Identifiable {
+    /// Recording fires when *either* the primary or the secondary key is
+    /// held. Use this when you want two keys that behave interchangeably
+    /// (e.g. one Mac keyboard and one external keyboard with different
+    /// available modifiers).
+    case either
+    /// Recording fires only when *both* primary and secondary are held
+    /// together. Classic chord shortcut.
+    case both
+
+    var id: String { rawValue }
+    var displayName: String { NSLocalizedString("combo.\(rawValue)", comment: "") }
 }
 
 enum HotkeyChoice: String, CaseIterable, Identifiable {
@@ -201,9 +255,57 @@ enum AppSettings {
         }
     }
 
+    /// Optional second modifier — when `useComboHotkey` is true, both must
+    /// be held down simultaneously to trigger recording.
+    static var hotkeySecondary: HotkeyChoice {
+        get {
+            let raw = UserDefaults.standard.string(forKey: SettingsKey.hotkeySecondary) ?? ""
+            return HotkeyChoice(rawValue: raw) ?? .rightControl
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.hotkeySecondary)
+            NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
+        }
+    }
+
+    /// When true, the hotkey takes a second modifier into account
+    /// (the meaning of which is controlled by `hotkeyComboMode`).
+    static var useComboHotkey: Bool {
+        get { UserDefaults.standard.bool(forKey: SettingsKey.hotkeyUseCombo) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: SettingsKey.hotkeyUseCombo)
+            NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
+        }
+    }
+
+    static var hotkeyComboMode: HotkeyComboMode {
+        get {
+            let raw = UserDefaults.standard.string(forKey: "hotkeyComboMode") ?? ""
+            return HotkeyComboMode(rawValue: raw) ?? .either
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "hotkeyComboMode")
+            NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
+        }
+    }
+
     static var transcriptionLanguageCode: String {
         get { UserDefaults.standard.string(forKey: SettingsKey.transcriptionLanguage) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.transcriptionLanguage) }
+    }
+
+    /// On first launch, the user has no preference yet — default to the
+    /// system language rather than leaving "Auto-detect" on. Whisper's
+    /// auto-detect is unreliable for short clips, and a wrong guess produces
+    /// a confusingly translated transcript (Russian audio → English
+    /// gibberish). System-language is a much better starting point; the user
+    /// can still pick "Auto" or override later.
+    static func initializeTranscriptionLanguageIfNeeded() {
+        guard UserDefaults.standard.object(forKey: SettingsKey.transcriptionLanguage) == nil else {
+            return
+        }
+        let code = TranscriptionLanguage.systemDefault().code
+        UserDefaults.standard.set(code, forKey: SettingsKey.transcriptionLanguage)
     }
 
     /// Filename of the user's chosen model. Empty string means "use the

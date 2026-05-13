@@ -42,6 +42,7 @@ final class AppController: ObservableObject {
 
     func start() {
         Migrations.runIfNeeded()
+        AppSettings.initializeTranscriptionLanguageIfNeeded()
         history = store.loadAll()
         sidecar.onCrash = { [weak self] summary in
             // Surface the head of the failure to the user via the menu.

@@ -195,7 +195,18 @@ final class SidecarClient {
         ]
         // Empty string means "auto-detect"; sidecar treats it as a flag to drop
         // the language hint and let Whisper auto-pick.
-        req["language"] = AppSettings.transcriptionLanguageCode
+        let langCode = AppSettings.transcriptionLanguageCode
+        req["language"] = langCode
+        // When the user keeps the picker on "Auto", bias Whisper toward the
+        // system language by passing a short hint phrase in that language as
+        // the initial_prompt. This is the documented Superwhisper trick — it
+        // dramatically reduces wrong-language detections on short clips.
+        if langCode.isEmpty {
+            let systemCode = TranscriptionLanguage.systemDefault().code
+            if let hint = TranscriptionLanguage.promptHint(forCode: systemCode) {
+                req["initial_prompt"] = hint
+            }
+        }
         // When Skip-empty is on, push whisper's own no-speech filter slightly
         // tighter than the default 0.6 so it drops more clearly-silent clips
         // before they hallucinate. 0.0 disables the filter entirely.

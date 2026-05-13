@@ -10,17 +10,41 @@ final class HotkeyMonitor {
     private(set) var isActive = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var keyDown = false
+
+    private var primaryDown = false
+    private var secondaryDown = false
+    private var combinedActive = false   // current "both keys held" state
+
     private var triggerKeyCode: Int64 = AppSettings.hotkey.keyCode
     private var triggerFlag: CGEventFlags = AppSettings.hotkey.modifierFlag
+    private var secondaryKeyCode: Int64?
+    private var secondaryFlag: CGEventFlags?
+    private var comboMode: HotkeyComboMode = .either
 
     func reloadHotkey() {
-        let choice = AppSettings.hotkey
-        triggerKeyCode = choice.keyCode
-        triggerFlag = choice.modifierFlag
-        // If the previously-tracked key was held under the old config, force release.
-        if keyDown {
-            keyDown = false
+        let primary = AppSettings.hotkey
+        triggerKeyCode = primary.keyCode
+        triggerFlag = primary.modifierFlag
+        comboMode = AppSettings.hotkeyComboMode
+        if AppSettings.useComboHotkey {
+            let secondary = AppSettings.hotkeySecondary
+            // Avoid the silly case of "same key twice" — fall back to single.
+            if secondary.keyCode != primary.keyCode {
+                secondaryKeyCode = secondary.keyCode
+                secondaryFlag = secondary.modifierFlag
+            } else {
+                secondaryKeyCode = nil
+                secondaryFlag = nil
+            }
+        } else {
+            secondaryKeyCode = nil
+            secondaryFlag = nil
+        }
+        // Force release whatever was held under the old config.
+        primaryDown = false
+        secondaryDown = false
+        if combinedActive {
+            combinedActive = false
             DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
         }
     }
@@ -39,7 +63,12 @@ final class HotkeyMonitor {
     }
 
     @objc private func systemDidWake(_ note: Notification) {
-        keyDown = false
+        primaryDown = false
+        secondaryDown = false
+        if combinedActive {
+            combinedActive = false
+            DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
+        }
         if let tap = eventTap, CGEvent.tapIsEnabled(tap: tap) == false {
             CGEvent.tapEnable(tap: tap, enable: true)
             return
@@ -117,28 +146,55 @@ final class HotkeyMonitor {
 
     private func handleFlags(_ event: CGEvent) {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let modDown = event.flags.contains(triggerFlag)
-        guard keyCode == triggerKeyCode else {
-            // Different modifier fired and ours isn't held in flags — release if needed.
-            if !modDown && keyDown {
-                keyDown = false
-                DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
-            }
-            return
+
+        // Update per-key down states based on which keycode just changed.
+        // We can't trust just the global flags mask because two distinct
+        // modifiers can share a CGEventFlag (e.g. left/right Option both
+        // set .maskAlternate). Checking keyCode tells us which specific
+        // key fired the flagsChanged event.
+        if keyCode == triggerKeyCode {
+            primaryDown = event.flags.contains(triggerFlag)
         }
-        if modDown && !keyDown {
-            keyDown = true
+        if let secCode = secondaryKeyCode, let secFlag = secondaryFlag,
+           keyCode == secCode {
+            secondaryDown = event.flags.contains(secFlag)
+        }
+
+        // If a third modifier fires and ours is no longer present in the
+        // global flags mask, treat as a release of that side.
+        if keyCode != triggerKeyCode, !event.flags.contains(triggerFlag) {
+            primaryDown = false
+        }
+        if let secFlag = secondaryFlag,
+           keyCode != secondaryKeyCode, !event.flags.contains(secFlag) {
+            secondaryDown = false
+        }
+
+        let nowActive: Bool
+        if secondaryKeyCode == nil {
+            nowActive = primaryDown
+        } else {
+            switch comboMode {
+            case .either: nowActive = primaryDown || secondaryDown
+            case .both:   nowActive = primaryDown && secondaryDown
+            }
+        }
+
+        if nowActive && !combinedActive {
+            combinedActive = true
             DispatchQueue.main.async { [weak self] in self?.onPressStart?() }
-        } else if !modDown && keyDown {
-            keyDown = false
+        } else if !nowActive && combinedActive {
+            combinedActive = false
             DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
         }
     }
 
     fileprivate func recoverAfterTapReEnable() {
         // After tap timeout/disable, we may have missed a release. Force release.
-        if keyDown {
-            keyDown = false
+        if combinedActive {
+            combinedActive = false
+            primaryDown = false
+            secondaryDown = false
             DispatchQueue.main.async { [weak self] in self?.onPressEnd?() }
         }
     }

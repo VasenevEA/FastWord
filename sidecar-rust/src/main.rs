@@ -33,6 +33,10 @@ struct Request {
     /// Whisper.cpp no-speech threshold (0.0 disables, default 0.6).
     #[serde(default)]
     no_speech_thold: Option<f32>,
+    /// Vocabulary hint passed to Whisper. Used by the Swift side to bias
+    /// language detection when the user keeps the picker on "Auto".
+    #[serde(default)]
+    initial_prompt: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +90,7 @@ impl ModelHolder {
         audio: &[f32],
         language: Option<&str>,
         no_speech_thold: f32,
+        initial_prompt: Option<&str>,
     ) -> Result<String> {
         let ctx = self.ensure_loaded()?;
         let mut state = ctx.create_state().context("create state")?;
@@ -105,6 +110,11 @@ impl ModelHolder {
         if let Some(lang) = language {
             if !lang.is_empty() {
                 params.set_language(Some(lang));
+            }
+        }
+        if let Some(prompt) = initial_prompt {
+            if !prompt.is_empty() {
+                params.set_initial_prompt(prompt);
             }
         }
 
@@ -158,7 +168,7 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
                 let mut h = holder.lock().unwrap();
-                let _ = h.transcribe(&silence, None, 0.0)?;
+                let _ = h.transcribe(&silence, None, 0.0, None)?;
                 Ok(String::new())
             }
             "transcribe" => {
@@ -172,7 +182,12 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
                 }
                 let thold = req.no_speech_thold.unwrap_or(0.6);
                 let mut h = holder.lock().unwrap();
-                h.transcribe(&audio, req.language.as_deref(), thold)
+                h.transcribe(
+                    &audio,
+                    req.language.as_deref(),
+                    thold,
+                    req.initial_prompt.as_deref(),
+                )
             }
             other => Err(anyhow!("unknown cmd: {other}")),
         }

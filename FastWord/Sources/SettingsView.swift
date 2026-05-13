@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(SettingsKey.livePreviewEnabled) private var livePreview: Bool = false
     @AppStorage(SettingsKey.hotkey) private var hotkeyRaw: String = HotkeyChoice.rightOption.rawValue
+    @AppStorage(SettingsKey.hotkeySecondary) private var hotkeySecondaryRaw: String = HotkeyChoice.rightControl.rawValue
+    @AppStorage(SettingsKey.hotkeyUseCombo) private var useCombo: Bool = false
+    @AppStorage("hotkeyComboMode") private var comboModeRaw: String = HotkeyComboMode.either.rawValue
     @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
     @AppStorage(SettingsKey.transcriptionLanguage) private var transcriptionLangCode: String = ""
     @AppStorage(SettingsKey.idleEviction) private var idleEvictionRaw: String = IdleEvictionChoice.tenMinutes.rawValue
@@ -16,6 +19,36 @@ struct SettingsView: View {
             get: { HotkeyChoice(rawValue: hotkeyRaw) ?? .rightOption },
             set: { newValue in
                 hotkeyRaw = newValue.rawValue
+                NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
+            }
+        )
+    }
+
+    private var hotkeySecondary: Binding<HotkeyChoice> {
+        Binding(
+            get: { HotkeyChoice(rawValue: hotkeySecondaryRaw) ?? .rightControl },
+            set: { newValue in
+                hotkeySecondaryRaw = newValue.rawValue
+                NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
+            }
+        )
+    }
+
+    private var useComboBinding: Binding<Bool> {
+        Binding(
+            get: { useCombo },
+            set: { newValue in
+                useCombo = newValue
+                NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
+            }
+        )
+    }
+
+    private var comboModeBinding: Binding<HotkeyComboMode> {
+        Binding(
+            get: { HotkeyComboMode(rawValue: comboModeRaw) ?? .either },
+            set: { newValue in
+                comboModeRaw = newValue.rawValue
                 NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
             }
         )
@@ -51,10 +84,35 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+
+                Toggle(isOn: useComboBinding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LocalizedStringKey("Use a second key"))
+                        Text(LocalizedStringKey("Bind a second modifier. Useful when you switch between keyboards that have different modifier keys (e.g. one has ⌥, the other has ⌃)."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if useCombo {
+                    Picker(LocalizedStringKey("Second key"), selection: hotkeySecondary) {
+                        ForEach(HotkeyChoice.allCases) { choice in
+                            Text(choice.displayName).tag(choice)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker(LocalizedStringKey("Combo mode"), selection: comboModeBinding) {
+                        ForEach(HotkeyComboMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
             } header: {
                 Text(LocalizedStringKey("Hotkey"))
             } footer: {
-                Text(LocalizedStringKey("Hold the chosen key to record. Release to transcribe and paste."))
+                Text(LocalizedStringKey("Hold the chosen key (or combo) to record. Release to transcribe and paste."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

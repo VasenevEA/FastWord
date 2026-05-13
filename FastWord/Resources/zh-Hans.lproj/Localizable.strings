@@ -105,3 +105,14 @@
 "If Whisper thinks the clip contains no speech, don't paste anything. Catches accidental short taps and silent clips." = "若 Whisper 认为录音中没有语音,则不粘贴任何内容。可拦截误触和静音片段。";
 "Clean up transcripts" = "清理转写文本";
 "Remove known Whisper hallucinations (‘Subtitles by Amara.org’, ‘Подписывайтесь на канал’), collapse repeated words, trim leading punctuation." = "移除 Whisper 常见幻觉(“Subtitles by Amara.org”、“Подписывайтесь на канал”),合并重复词,去除前导标点。";
+
+"Hold the chosen key (or combo) to record. Release to transcribe and paste." = "按住所选按键(或组合键)开始录音,松开后转写并粘贴。";
+"Require a second key (combo)" = "需要第二个按键(组合键)";
+"Recording starts only when both keys are held together." = "只有同时按住两个按键时才开始录音。";
+"Second key" = "第二个按键";
+
+"Use a second key" = "使用第二个按键";
+"Bind a second modifier. Useful when you switch between keyboards that have different modifier keys (e.g. one has ⌥, the other has ⌃)." = "绑定第二个修饰键。当您在拥有不同修饰键的键盘之间切换时很有用(例如,一个有 ⌥,另一个有 ⌃)。";
+"Combo mode" = "组合模式";
+"combo.either" = "任一按键";
+"combo.both" = "同时按住两个键";
