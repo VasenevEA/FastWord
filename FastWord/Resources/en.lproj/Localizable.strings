@@ -78,7 +78,7 @@
 
 "Audio" = "Audio";
 "Background audio" = "Background audio";
-"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends.";
+"audio.footer" = "audio.footer";
 "audio.off" = "Do nothing";
 "audio.pause_resume" = "Pause / Resume player";
 
@@ -97,3 +97,6 @@
 "model.large_q5.desc" = "Non-turbo large, quantized. Slower than turbo.";
 "model.large_full.desc" = "Best quality, slowest, biggest.";
 "Installed" = "Installed";
+
+"audio.mute_system" = "Mute system audio";
+"audio.footer" = "‘Pause / Resume player’ works for Spotify, Apple Music, podcast apps and other Now-Playing-aware players. For YouTube in a browser, pick ‘Mute system audio’ — it lowers your system volume to 0 while you dictate and restores it after.";

@@ -15,6 +15,7 @@ enum SettingsKey {
 enum AudioHandlingChoice: String, CaseIterable, Identifiable {
     case off
     case pauseResume
+    case muteSystem
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum AudioHandlingChoice: String, CaseIterable, Identifiable {
         switch self {
         case .off: return "audio.off"
         case .pauseResume: return "audio.pause_resume"
+        case .muteSystem: return "audio.mute_system"
         }
     }
 

@@ -78,7 +78,7 @@
 
 "Audio" = "Аудио";
 "Background audio" = "Фоновое аудио";
-"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "Когда начинается диктовка, FastWord может отправить Play/Pause активному плееру (Spotify, Music, YouTube…) и снова запустить его после записи.";
+"audio.footer" = "Когда начинается диктовка, FastWord может отправить Play/Pause активному плееру (Spotify, Music, YouTube…) и снова запустить его после записи.";
 "audio.off" = "Не трогать";
 "audio.pause_resume" = "Ставить плеер на паузу";
 
@@ -97,3 +97,6 @@
 "model.large_q5.desc" = "Non-turbo large, квантизованная. Медленнее turbo.";
 "model.large_full.desc" = "Максимум качества, самая медленная и большая.";
 "Installed" = "Установлена";
+
+"audio.mute_system" = "Мьютить системный звук";
+"audio.footer" = "«Ставить плеер на паузу» работает для Spotify, Apple Music, подкаст-приложений и других плееров, которые регистрируются в системном Now Playing. Для YouTube в браузере выбирай «Мьютить системный звук» — на время диктовки громкость становится 0, потом восстанавливается.";

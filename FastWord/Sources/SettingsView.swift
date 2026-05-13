@@ -116,7 +116,7 @@ struct SettingsView: View {
             } header: {
                 Text(LocalizedStringKey("Audio"))
             } footer: {
-                Text(LocalizedStringKey("When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends."))
+                Text(LocalizedStringKey("audio.footer"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

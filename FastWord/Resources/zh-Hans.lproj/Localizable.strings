@@ -78,7 +78,7 @@
 
 "Audio" = "音频";
 "Background audio" = "后台音频";
-"When you start dictating, FastWord can send a Play/Pause media key to whatever player is active (Spotify, Music, YouTube…) and resume it when the recording ends." = "开始听写时,FastWord 可以向当前播放器(Spotify、Music、YouTube…)发送 Play/Pause 媒体按键,录音结束后再次播放。";
+"audio.footer" = "开始听写时,FastWord 可以向当前播放器(Spotify、Music、YouTube…)发送 Play/Pause 媒体按键,录音结束后再次播放。";
 "audio.off" = "不处理";
 "audio.pause_resume" = "暂停 / 恢复播放器";
 
@@ -97,3 +97,6 @@
 "model.large_q5.desc" = "非 turbo 的 large,已量化。比 turbo 慢。";
 "model.large_full.desc" = "最高质量,最慢,最大。";
 "Installed" = "已安装";
+
+"audio.mute_system" = "静音系统音量";
+"audio.footer" = "“暂停 / 恢复播放器”适用于 Spotify、Apple Music、播客等已注册到系统 Now Playing 的播放器。浏览器中的 YouTube 请选择“静音系统音量”——听写期间将系统音量降为 0,结束后恢复。";

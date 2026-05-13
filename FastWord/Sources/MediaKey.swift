@@ -40,6 +40,16 @@ enum MediaKey {
         await MediaRemote.shared.isNowPlaying()
     }
 
+    /// Sends a raw system-defined play/pause keystroke. This is the only
+    /// thing that reaches media playing inside a web browser (YouTube,
+    /// SoundCloud) because browsers don't register as the system Now Playing
+    /// client — they only listen to HID media keys. Caller must remember
+    /// that this is a **toggle** and resume by sending the same key again.
+    static func toggleViaSystemDefined() {
+        postNXSystemDefined(downFlags: 0xa)
+        postNXSystemDefined(downFlags: 0xb)
+    }
+
     // MARK: - NX_KEYTYPE_PLAY via NSEvent.systemDefined (fallback)
 
     private static let NX_KEYTYPE_PLAY: Int = 16
@@ -59,7 +69,11 @@ enum MediaKey {
             data2: -1
         ) else { return }
         if let cg = event.cgEvent {
-            cg.post(tap: .cghidEventTap)
+            // Session tap reaches both the global media-key receiver
+            // (Spotify, Music) and per-session listeners (Safari/Chrome
+            // HTML5 audio bridges); HID tap is the other way around. Session
+            // tap is the strictly broader choice.
+            cg.post(tap: .cgSessionEventTap)
         }
     }
 }

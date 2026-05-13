@@ -32,9 +32,13 @@ final class AppController: ObservableObject {
     private var previewTimer: Timer?
     private var previewInFlight = false
     private var previewToken: UUID?
-    /// Tracks whether we sent a media-pause when this recording started, so
-    /// we know whether to resume on stop/cancel.
-    private var sentMediaPause = false
+    /// Tracks how we suppressed background audio when this recording started,
+    /// so we know how to undo on stop/cancel.
+    private enum PauseMethod {
+        case mediaRemote
+        case volume(restoreTo: Int)
+    }
+    private var pauseMethod: PauseMethod?
 
     func start() {
         Migrations.runIfNeeded()
@@ -154,9 +158,14 @@ final class AppController: ObservableObject {
     }
 
     private func resumeMediaIfPaused() {
-        guard sentMediaPause else { return }
-        sentMediaPause = false
-        MediaKey.play()
+        guard let method = pauseMethod else { return }
+        pauseMethod = nil
+        switch method {
+        case .mediaRemote:
+            MediaKey.play()
+        case .volume(let restoreTo):
+            SystemVolume.set(restoreTo)
+        }
     }
 
     private func handlePressEnd() {
@@ -186,16 +195,35 @@ final class AppController: ObservableObject {
             try recorder.start()
             isRecording = true
             statusText = NSLocalizedString("Recording...", comment: "")
-            // Optionally pause whatever's currently playing so it doesn't leak
-            // into the microphone. Only fires if something is actually playing
-            // right now — otherwise a 'toggle' would start music from silence.
-            if AppSettings.audioHandling == .pauseResume {
+            // Optionally pause whatever's playing so it doesn't leak into the
+            // microphone. Strategy:
+            //   - If MediaRemote sees an active Now Playing client (Spotify,
+            //     Music, etc.), send the precise pause command. Resume via
+            //     MediaRemote on stop.
+            //   - If MediaRemote sees nothing, the user might still have
+            //     audio coming from a browser tab (YouTube etc.) which never
+            //     registers with MediaRemote. Fall back to the raw HID media
+            //     key — it's a toggle, but it's the only thing browsers
+            //     listen to. Resume by toggling again.
+            switch AppSettings.audioHandling {
+            case .off:
+                break
+            case .pauseResume:
                 Task { @MainActor in
                     guard self.isRecording else { return }
                     let playing = await MediaKey.isNowPlaying()
                     guard self.isRecording, playing else { return }
                     MediaKey.pause()
-                    self.sentMediaPause = true
+                    self.pauseMethod = .mediaRemote
+                }
+            case .muteSystem:
+                // Universal path: works for Safari/Chrome/YouTube/anything,
+                // because we're just turning down the system master output.
+                // Snapshot the current level so we restore exactly what the
+                // user had.
+                if let level = SystemVolume.current(), level > 0 {
+                    SystemVolume.set(0)
+                    pauseMethod = .volume(restoreTo: level)
                 }
             }
             // Defer the HUD slightly so an accidental quick tap doesn't flash a panel.
