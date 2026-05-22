@@ -79,7 +79,7 @@ private struct GigaAMRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("GigaAM v3 (Russian)")
+                    Text("GigaAM v3")
                         .font(.system(size: 13, weight: .medium))
                     if case .installed = installer.state {
                         if isActive {
@@ -89,7 +89,7 @@ private struct GigaAMRow: View {
                         }
                     }
                 }
-                Text(LocalizedStringKey("215 MB · Sber's MIT-licensed model. ~50% lower WER than Whisper-large-v3 on Russian. Russian only."))
+                Text(LocalizedStringKey("215 MB · Sber's MIT-licensed model, ~50% lower WER than Whisper-large-v3. Russian only."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if case .downloading(let progress) = installer.state {
