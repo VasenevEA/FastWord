@@ -35,6 +35,11 @@ enum ModelCatalog {
     /// The catalog is also a source of truth for "is this the bundled model".
     static let bundledFilename = "ggml-large-v3-turbo-q5_0.bin"
 
+    /// Sentinel `activeModel` value meaning "use the GigaAM engine".
+    /// GigaAM isn't a whisper.cpp model so it doesn't have a .bin filename —
+    /// we just need a stable identifier for the user's selection.
+    static let gigaAMSentinel = "gigaam-v3-ctc"
+
     /// Multilingual ggml models suitable for FastWord's three-language audience.
     /// English-only `.en` variants are deliberately excluded — they would
     /// confuse users who dictate in Russian or Chinese.

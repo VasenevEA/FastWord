@@ -218,14 +218,13 @@ final class SidecarClient {
         // the language hint and let Whisper auto-pick.
         let langCode = AppSettings.transcriptionLanguageCode
         req["language"] = langCode
-        // Engine routing: GigaAM-v3 is Russian-only but much more accurate
-        // for Russian than Whisper. Only enable it when the user explicitly
-        // opted in, the active language is Russian, *and* the model files
-        // are already installed locally. Otherwise we silently fall back to
-        // Whisper so the dictation never breaks because of a missing model.
-        if AppSettings.useGigaAMForRussian, langCode == "ru",
+        // Engine routing: GigaAM is selected as the active model in the
+        // Models list (sentinel filename). It's Russian-only, so we also
+        // pin the language hint to "ru" regardless of what the picker says.
+        if AppSettings.activeModelFilename == ModelCatalog.gigaAMSentinel,
            GigaAMInstaller.isInstalled {
             req["engine"] = "gigaam"
+            req["language"] = "ru"
         }
         // When the user keeps the picker on "Auto", bias Whisper toward the
         // system language by passing a short hint phrase in that language as

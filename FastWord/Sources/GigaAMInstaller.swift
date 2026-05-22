@@ -97,6 +97,17 @@ final class GigaAMInstaller: NSObject, ObservableObject {
         }
     }
 
+    /// Remove the installed model files from disk and reset state.
+    func uninstall() {
+        let dir = Self.installDirectory
+        let fm = FileManager.default
+        for file in Self.files {
+            let path = dir.appendingPathComponent(file.name)
+            try? fm.removeItem(at: path)
+        }
+        state = .notInstalled
+    }
+
     func cancel() {
         for task in tasks.values {
             task.cancel()
