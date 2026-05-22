@@ -19,6 +19,8 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+mod gigaam;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -37,6 +39,9 @@ struct Request {
     /// language detection when the user keeps the picker on "Auto".
     #[serde(default)]
     initial_prompt: Option<String>,
+    /// "whisper" (default) or "gigaam" — selects the inference engine.
+    #[serde(default)]
+    engine: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,13 +166,55 @@ fn decode_pcm(b64: &str) -> Result<Vec<f32>> {
     Ok(floats)
 }
 
-fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
+struct Engines {
+    whisper: Mutex<ModelHolder>,
+    gigaam_dir: Option<PathBuf>,
+    gigaam: Mutex<Option<gigaam::Recognizer>>,
+}
+
+impl Engines {
+    fn new(whisper_path: PathBuf, gigaam_dir: Option<PathBuf>) -> Self {
+        Self {
+            whisper: Mutex::new(ModelHolder::new(whisper_path)),
+            gigaam_dir,
+            gigaam: Mutex::new(None),
+        }
+    }
+
+    fn evict_if_idle(&self, idle_after: Duration) {
+        self.whisper.lock().unwrap().evict_if_idle(idle_after);
+        // GigaAM doesn't expose a 'free' equivalent for OfflineRecognizer; the
+        // recognizer holds the ONNX session for its lifetime. We could drop
+        // the inner Option to free it, but loading takes 5-10 seconds, so for
+        // now we keep it warm. (TODO: optional eviction in the future.)
+    }
+
+    fn run_gigaam(&self, audio: &[f32]) -> Result<String> {
+        let mut guard = self.gigaam.lock().unwrap();
+        if guard.is_none() {
+            let dir = self
+                .gigaam_dir
+                .as_deref()
+                .ok_or_else(|| anyhow!("GigaAM model directory not configured (FASTWORD_GIGAAM_MODEL)"))?;
+            log(&format!("loading GigaAM from {}", dir.display()));
+            let rec = gigaam::Recognizer::load(dir)?;
+            log("GigaAM loaded");
+            *guard = Some(rec);
+        }
+        guard
+            .as_ref()
+            .unwrap()
+            .transcribe(audio, 16_000)
+    }
+}
+
+fn handle(req: Request, engines: &Arc<Engines>) -> Response {
     let id = req.id.clone();
     let res: Result<String> = (|| {
         match req.cmd.as_str() {
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
-                let mut h = holder.lock().unwrap();
+                let mut h = engines.whisper.lock().unwrap();
                 let _ = h.transcribe(&silence, None, 0.0, None)?;
                 Ok(String::new())
             }
@@ -180,14 +227,20 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
                 if audio.len() < 1600 {
                     return Ok(String::new());
                 }
-                let thold = req.no_speech_thold.unwrap_or(0.6);
-                let mut h = holder.lock().unwrap();
-                h.transcribe(
-                    &audio,
-                    req.language.as_deref(),
-                    thold,
-                    req.initial_prompt.as_deref(),
-                )
+                let engine = req.engine.as_deref().unwrap_or("whisper");
+                match engine {
+                    "gigaam" => engines.run_gigaam(&audio),
+                    _ => {
+                        let thold = req.no_speech_thold.unwrap_or(0.6);
+                        let mut h = engines.whisper.lock().unwrap();
+                        h.transcribe(
+                            &audio,
+                            req.language.as_deref(),
+                            thold,
+                            req.initial_prompt.as_deref(),
+                        )
+                    }
+                }
             }
             other => Err(anyhow!("unknown cmd: {other}")),
         }
@@ -210,10 +263,10 @@ fn handle(req: Request, holder: &Arc<Mutex<ModelHolder>>) -> Response {
     }
 }
 
-fn evict_loop(holder: Arc<Mutex<ModelHolder>>, idle_after: Duration) {
+fn evict_loop(engines: Arc<Engines>, idle_after: Duration) {
     loop {
         thread::sleep(Duration::from_secs(30));
-        holder.lock().unwrap().evict_if_idle(idle_after);
+        engines.evict_if_idle(idle_after);
     }
 }
 
@@ -237,10 +290,11 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(600);
 
-    let holder = Arc::new(Mutex::new(ModelHolder::new(model_path)));
+    let gigaam_dir = gigaam::default_model_dir();
+    let engines = Arc::new(Engines::new(model_path, gigaam_dir));
     {
-        let h = Arc::clone(&holder);
-        thread::spawn(move || evict_loop(h, Duration::from_secs(idle_after_secs)));
+        let e = Arc::clone(&engines);
+        thread::spawn(move || evict_loop(e, Duration::from_secs(idle_after_secs)));
     }
 
     log("ready");
@@ -267,7 +321,7 @@ fn main() -> Result<()> {
                 continue;
             }
         };
-        let resp = handle(req, &holder);
+        let resp = handle(req, &engines);
         writeln!(out, "{}", serde_json::to_string(&resp).unwrap())?;
         out.flush()?;
     }

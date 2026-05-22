@@ -13,6 +13,7 @@ enum SettingsKey {
     static let activeModel = "activeModel"
     static let skipEmpty = "skipEmpty"
     static let cleanupEnabled = "cleanupEnabled"
+    static let useGigaAMForRussian = "useGigaAMForRussian"
 }
 
 /// How FastWord should treat background audio when the user starts dictating.
@@ -341,6 +342,15 @@ enum AppSettings {
     /// When true, run the programmatic post-processor on every transcript
     /// (strip known YouTube-credit-style hallucinations, collapse repeated
     /// words, trim leading punctuation noise).
+    /// When enabled, Russian transcriptions are routed to the GigaAM-v3
+    /// engine via sherpa-onnx instead of whisper.cpp. GigaAM is Sber's
+    /// Russian-specific Conformer-CTC model; it outperforms Whisper-large-v3
+    /// on Russian by ~50% WER but only knows Russian.
+    static var useGigaAMForRussian: Bool {
+        get { UserDefaults.standard.bool(forKey: SettingsKey.useGigaAMForRussian) }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKey.useGigaAMForRussian) }
+    }
+
     static var cleanupEnabled: Bool {
         get {
             if UserDefaults.standard.object(forKey: SettingsKey.cleanupEnabled) == nil { return true }

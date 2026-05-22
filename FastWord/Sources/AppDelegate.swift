@@ -111,6 +111,11 @@ final class AppController: ObservableObject {
         history.removeAll { $0.id == id }
     }
 
+    func clearAllHistory() {
+        store.deleteAll()
+        history.removeAll()
+    }
+
     func copyEntryToClipboard(_ text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()

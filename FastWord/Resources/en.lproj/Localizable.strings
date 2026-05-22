@@ -115,3 +115,19 @@
 "Combo mode" = "Combo mode";
 "combo.either" = "Either key alone";
 "combo.both" = "Both keys held together";
+
+"Copied" = "Copied";
+"Click to copy" = "Click to copy";
+
+"Clear all" = "Clear all";
+"Delete every transcription in the history" = "Delete every transcription in the history";
+"Delete all transcriptions?" = "Delete all transcriptions?";
+"Delete All" = "Delete All";
+"This permanently removes every transcription stored locally. It can't be undone." = "This permanently removes every transcription stored locally. It can't be undone.";
+
+"Use GigaAM v3 for Russian (experimental)" = "Use GigaAM v3 for Russian (experimental)";
+"When the transcription language is Russian, route audio through Sber's GigaAM-v3 model (sherpa-onnx). MIT-licensed, ~50% lower WER than Whisper-large-v3 on Russian. Other languages still use Whisper." = "When the transcription language is Russian, route audio through Sber's GigaAM-v3 model (sherpa-onnx). MIT-licensed, ~50% lower WER than Whisper-large-v3 on Russian. Other languages still use Whisper.";
+
+"GigaAM model not downloaded yet (~215 MB)" = "GigaAM model not downloaded yet (~215 MB)";
+"GigaAM model installed" = "GigaAM model installed";
+"Retry" = "Retry";

@@ -68,4 +68,8 @@ final class HistoryStore {
         sqlite3_bind_text(stmt, 1, id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_step(stmt)
     }
+
+    func deleteAll() {
+        sqlite3_exec(db, "DELETE FROM entries;", nil, nil, nil)
+    }
 }

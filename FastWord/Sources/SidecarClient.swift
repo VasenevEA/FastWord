@@ -1,9 +1,21 @@
 import Foundation
 
-enum SidecarError: Error {
+enum SidecarError: LocalizedError {
     case notRunning
     case decodeFailed
     case remote(String)
+
+    // Without this, `error.localizedDescription` collapses to the unhelpful
+    // "The operation couldn't be completed. (SidecarError error 0.)" — which
+    // is what the user actually sees in the HUD when sherpa-onnx or whisper
+    // raises a real message we want to surface.
+    var errorDescription: String? {
+        switch self {
+        case .notRunning: return "sidecar not running"
+        case .decodeFailed: return "could not decode sidecar response"
+        case .remote(let msg): return msg
+        }
+    }
 }
 
 final class SidecarClient {
@@ -69,6 +81,15 @@ final class SidecarClient {
         var env = ProcessInfo.processInfo.environment
         env["FASTWORD_MODEL"] = model
         env["FASTWORD_IDLE_EVICT"] = String(AppSettings.idleEviction.seconds)
+        // Point the sidecar at the locally-installed GigaAM v3 model
+        // directory (lives in Application Support; populated on demand by
+        // GigaAMInstaller when the user enables the toggle). The sidecar only
+        // loads it on the first `engine=gigaam` request, so this is cheap
+        // even when the user never uses GigaAM.
+        let gigaamDir = GigaAMInstaller.installDirectory.path
+        if fm.fileExists(atPath: "\(gigaamDir)/model.int8.onnx") {
+            env["FASTWORD_GIGAAM_MODEL"] = gigaamDir
+        }
         proc.environment = env
         let stdin = Pipe(); let stdout = Pipe(); let stderr = Pipe()
         proc.standardInput = stdin
@@ -197,6 +218,15 @@ final class SidecarClient {
         // the language hint and let Whisper auto-pick.
         let langCode = AppSettings.transcriptionLanguageCode
         req["language"] = langCode
+        // Engine routing: GigaAM-v3 is Russian-only but much more accurate
+        // for Russian than Whisper. Only enable it when the user explicitly
+        // opted in, the active language is Russian, *and* the model files
+        // are already installed locally. Otherwise we silently fall back to
+        // Whisper so the dictation never breaks because of a missing model.
+        if AppSettings.useGigaAMForRussian, langCode == "ru",
+           GigaAMInstaller.isInstalled {
+            req["engine"] = "gigaam"
+        }
         // When the user keeps the picker on "Auto", bias Whisper toward the
         // system language by passing a short hint phrase in that language as
         // the initial_prompt. This is the documented Superwhisper trick — it

@@ -116,3 +116,19 @@
 "Combo mode" = "Режим";
 "combo.either" = "Любая из двух клавиш";
 "combo.both" = "Обе клавиши одновременно";
+
+"Copied" = "Скопировано";
+"Click to copy" = "Клик чтобы скопировать";
+
+"Clear all" = "Очистить всё";
+"Delete every transcription in the history" = "Удалить всю историю транскрипций";
+"Delete all transcriptions?" = "Удалить всю историю?";
+"Delete All" = "Удалить всё";
+"This permanently removes every transcription stored locally. It can't be undone." = "Все транскрипции будут безвозвратно удалены с этого устройства. Отменить нельзя.";
+
+"Use GigaAM v3 for Russian (experimental)" = "Использовать GigaAM v3 для русского (эксп.)";
+"When the transcription language is Russian, route audio through Sber's GigaAM-v3 model (sherpa-onnx). MIT-licensed, ~50% lower WER than Whisper-large-v3 on Russian. Other languages still use Whisper." = "Когда язык распознавания — русский, отправлять аудио в модель GigaAM v3 от Сбера (через sherpa-onnx). Лицензия MIT, WER на русском примерно в 2 раза ниже чем у Whisper-large-v3. Для других языков продолжает работать Whisper.";
+
+"GigaAM model not downloaded yet (~215 MB)" = "Модель GigaAM ещё не скачана (~215 МБ)";
+"GigaAM model installed" = "Модель GigaAM установлена";
+"Retry" = "Повторить";

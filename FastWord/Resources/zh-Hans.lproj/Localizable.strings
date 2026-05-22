@@ -116,3 +116,19 @@
 "Combo mode" = "组合模式";
 "combo.either" = "任一按键";
 "combo.both" = "同时按住两个键";
+
+"Copied" = "已复制";
+"Click to copy" = "点击复制";
+
+"Clear all" = "清空全部";
+"Delete every transcription in the history" = "删除所有历史转写记录";
+"Delete all transcriptions?" = "删除所有转写记录?";
+"Delete All" = "全部删除";
+"This permanently removes every transcription stored locally. It can't be undone." = "将永久删除本地保存的所有转写记录,且无法撤销。";
+
+"Use GigaAM v3 for Russian (experimental)" = "对俄语使用 GigaAM v3(实验性)";
+"When the transcription language is Russian, route audio through Sber's GigaAM-v3 model (sherpa-onnx). MIT-licensed, ~50% lower WER than Whisper-large-v3 on Russian. Other languages still use Whisper." = "当转写语言为俄语时,将音频通过 Sber 的 GigaAM-v3 模型(sherpa-onnx)处理。MIT 许可,俄语 WER 比 Whisper-large-v3 低约 50%。其他语言仍使用 Whisper。";
+
+"GigaAM model not downloaded yet (~215 MB)" = "GigaAM 模型尚未下载(约 215 MB)";
+"GigaAM model installed" = "GigaAM 模型已安装";
+"Retry" = "重试";

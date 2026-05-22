@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.audioHandling) private var audioHandlingRaw: String = AudioHandlingChoice.off.rawValue
     @AppStorage(SettingsKey.skipEmpty) private var skipEmpty: Bool = true
     @AppStorage(SettingsKey.cleanupEnabled) private var cleanupEnabled: Bool = true
+    @AppStorage(SettingsKey.useGigaAMForRussian) private var useGigaAM: Bool = false
+    @StateObject private var gigaAMInstaller = GigaAMInstaller.shared
     @State private var languageChanged = false
 
     private var hotkey: Binding<HotkeyChoice> {
@@ -125,6 +127,20 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(isOn: $useGigaAM) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(LocalizedStringKey("Use GigaAM v3 for Russian (experimental)"))
+                            Text(LocalizedStringKey("When the transcription language is Russian, route audio through Sber's GigaAM-v3 model (sherpa-onnx). MIT-licensed, ~50% lower WER than Whisper-large-v3 on Russian. Other languages still use Whisper."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if useGigaAM {
+                        gigaAMRow
+                    }
+                }
+
                 Toggle(isOn: $skipEmpty) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(LocalizedStringKey("Skip empty recordings"))
@@ -217,6 +233,53 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 640, idealWidth: 680, minHeight: 600, idealHeight: 720)
+    }
+
+    @ViewBuilder
+    private var gigaAMRow: some View {
+        HStack(spacing: 8) {
+            switch gigaAMInstaller.state {
+            case .notInstalled:
+                Image(systemName: "arrow.down.circle")
+                    .foregroundStyle(.secondary)
+                Text(LocalizedStringKey("GigaAM model not downloaded yet (~215 MB)"))
+                    .font(.caption)
+                Spacer()
+                Button(LocalizedStringKey("Download")) {
+                    gigaAMInstaller.startDownload()
+                }
+                .controlSize(.small)
+            case .downloading(let progress):
+                ProgressView(value: progress)
+                    .frame(maxWidth: 180)
+                Text(String(format: "%.0f %%", progress * 100))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(LocalizedStringKey("Cancel")) {
+                    gigaAMInstaller.cancel()
+                }
+                .controlSize(.small)
+            case .installed:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(LocalizedStringKey("GigaAM model installed"))
+                    .font(.caption)
+                Spacer()
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.caption)
+                    .lineLimit(2)
+                Spacer()
+                Button(LocalizedStringKey("Retry")) {
+                    gigaAMInstaller.startDownload()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.leading, 4)
     }
 
     private func applyLanguage(_ choice: LanguageChoice) {
