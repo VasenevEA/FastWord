@@ -30,7 +30,14 @@ pub fn insert_text(text: &str) -> Result<()> {
 
     // Give the clipboard write a moment to settle before the paste chord.
     thread::sleep(Duration::from_millis(50));
-    send_ctrl_v();
+    if !send_ctrl_v() {
+        // UIPI blocks injection into elevated windows (admin terminal,
+        // Task Manager). Leave the transcript on the clipboard so the user
+        // can paste it manually.
+        return Err(anyhow::anyhow!(
+            "paste blocked (elevated window?) — text left on the clipboard"
+        ));
+    }
 
     // Electron / Chromium paste handlers are asynchronous — restoring the
     // clipboard too early races them (700 ms cleared every app the macOS
@@ -68,13 +75,16 @@ fn key_event(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     }
 }
 
-fn send_ctrl_v() {
+/// Returns false if the events were not injected (SendInput reports fewer
+/// events than requested, e.g. blocked by UIPI).
+fn send_ctrl_v() -> bool {
     // A short gap between down and up lets slower apps register the chord.
     unsafe {
         let down = [key_event(VK_CONTROL, false), key_event(VK_V, false)];
-        SendInput(&down, std::mem::size_of::<INPUT>() as i32);
+        let sent_down = SendInput(&down, std::mem::size_of::<INPUT>() as i32);
         thread::sleep(Duration::from_millis(15));
         let up = [key_event(VK_V, true), key_event(VK_CONTROL, true)];
-        SendInput(&up, std::mem::size_of::<INPUT>() as i32);
+        let sent_up = SendInput(&up, std::mem::size_of::<INPUT>() as i32);
+        sent_down == down.len() as u32 && sent_up == up.len() as u32
     }
 }

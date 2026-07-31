@@ -21,6 +21,7 @@ mod logging;
 mod postprocess;
 mod sidecar;
 
+use std::collections::VecDeque;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 
@@ -41,12 +42,13 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CallNextHookEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW,
-    MessageBoxW, PostQuitMessage, RegisterClassW, SetForegroundWindow, SetWindowsHookExW,
-    TrackPopupMenu, TranslateMessage, UnhookWindowsHookEx, HHOOK, IDI_APPLICATION,
-    KBDLLHOOKSTRUCT, LLKHF_INJECTED, MB_ICONERROR, MB_ICONHAND, MB_OK, MF_SEPARATOR, MF_STRING,
-    MSG, SW_SHOWNORMAL, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WH_KEYBOARD_LL,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONUP,
-    WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW,
+    MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+    SetForegroundWindow, SetWindowsHookExW, TrackPopupMenu, TranslateMessage,
+    UnhookWindowsHookEx, HHOOK, IDI_APPLICATION, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MB_ICONERROR,
+    MB_ICONHAND, MB_OK, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_NONOTIFY,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WH_KEYBOARD_LL, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
+    WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_SYSKEYDOWN,
+    WM_SYSKEYUP, WNDCLASSW,
 };
 
 const WM_TRAYICON: u32 = WM_APP + 1;
@@ -67,6 +69,24 @@ enum AppEvent {
 
 static EVENT_TX: OnceLock<Sender<AppEvent>> = OnceLock::new();
 static TRACKER: Mutex<Option<PttTracker>> = Mutex::new(None);
+/// PTT keys the hook should swallow (system doesn't see them). Only
+/// non-modifier keys go here: a Win/CapsLock/F-key hotkey has disruptive
+/// side effects (Start menu, caps state), while Ctrl/Alt/Shift are inert
+/// when held alone, so those pass through like on macOS. 0 = unused slot.
+static SWALLOW_VKS: [std::sync::atomic::AtomicU32; 2] = [
+    std::sync::atomic::AtomicU32::new(0),
+    std::sync::atomic::AtomicU32::new(0),
+];
+/// "TaskbarCreated" broadcast id — Explorer restarts wipe tray icons, and
+/// every tray app must re-add its icon when this message arrives.
+static TASKBAR_CREATED_MSG: OnceLock<u32> = OnceLock::new();
+static TRAY_TIP: OnceLock<String> = OnceLock::new();
+
+/// Modifier keys are pass-through; everything else configured as a hotkey
+/// gets swallowed by the hook.
+fn is_modifier_vk(vk: u32) -> bool {
+    (0xA0..=0xA5).contains(&vk) // L/R Shift, Ctrl, Alt
+}
 
 fn send_event(ev: AppEvent) {
     if let Some(tx) = EVENT_TX.get() {
@@ -110,14 +130,33 @@ fn run_app() -> Result<()> {
 
     let primary = hotkey::parse_hotkey(&cfg.hotkey)
         .ok_or_else(|| anyhow!("unknown hotkey \"{}\" in config.toml", cfg.hotkey))?;
-    let secondary = if cfg.hotkey_secondary.trim().is_empty() {
+    let mut secondary = if cfg.hotkey_secondary.trim().is_empty() {
         None
     } else {
         Some(hotkey::parse_hotkey(&cfg.hotkey_secondary).ok_or_else(|| {
             anyhow!("unknown hotkey_secondary \"{}\" in config.toml", cfg.hotkey_secondary)
         })?)
     };
+    // Same key twice + combo_mode="both" could never fire — collapse to a
+    // single-key hotkey like the macOS monitor does.
+    if secondary == Some(primary) {
+        logging::log("hotkey_secondary equals hotkey — using single-key mode");
+        secondary = None;
+    }
     let combo_mode = ComboMode::parse(&cfg.combo_mode);
+
+    // Non-modifier hotkeys are swallowed by the hook so a Win/CapsLock/F-key
+    // PTT doesn't open the Start menu / toggle caps on every dictation.
+    {
+        use std::sync::atomic::Ordering;
+        let mut slot = 0;
+        for vk in [Some(primary), secondary].into_iter().flatten() {
+            if !is_modifier_vk(vk) {
+                SWALLOW_VKS[slot].store(vk, Ordering::Relaxed);
+                slot += 1;
+            }
+        }
+    }
 
     let model_path = cfg.resolved_model_path();
     if !model_path.exists() {
@@ -137,7 +176,12 @@ fn run_app() -> Result<()> {
         model_path.display()
     ));
 
-    let client = sidecar::SidecarClient::spawn(&sidecar_exe, &model_path, cfg.idle_evict_secs)?;
+    let spawner = sidecar::SidecarSpawner {
+        exe: sidecar_exe.clone(),
+        model: model_path.clone(),
+        idle_evict_secs: cfg.idle_evict_secs,
+    };
+    let client = spawner.spawn()?;
 
     let (language, initial_prompt) = languages::resolve(&cfg.language);
     logging::log(&format!(
@@ -160,7 +204,8 @@ fn run_app() -> Result<()> {
         cleanup_enabled: cfg.cleanup_enabled,
         beeps: cfg.beeps,
     };
-    let controller = std::thread::spawn(move || controller_loop(rx, client, controller_cfg));
+    let controller =
+        std::thread::spawn(move || controller_loop(rx, client, spawner, controller_cfg));
 
     // Win32 surface: keyboard hook, hidden window, tray icon, message loop.
     let hook = unsafe {
@@ -171,6 +216,12 @@ fn run_app() -> Result<()> {
 
     let hwnd = create_hidden_window()?;
     let tip = format!("FastWord — hold {} to dictate", cfg.hotkey);
+    let _ = TRAY_TIP.set(tip.clone());
+    let taskbar_msg = unsafe {
+        let name = wide("TaskbarCreated");
+        RegisterWindowMessageW(PCWSTR(name.as_ptr()))
+    };
+    let _ = TASKBAR_CREATED_MSG.set(taskbar_msg);
     add_tray_icon(hwnd, &tip)?;
     logging::log("ready — tray icon installed");
 
@@ -214,15 +265,27 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                     if down {
                         send_event(AppEvent::CancelKey);
                     }
-                } else if let Some(ev) = TRACKER
-                    .lock()
-                    .ok()
-                    .and_then(|mut t| t.as_mut().and_then(|t| t.on_key(kb.vkCode, down)))
-                {
-                    send_event(match ev {
-                        PttEvent::Start => AppEvent::PttDown,
-                        PttEvent::Stop => AppEvent::PttUp,
-                    });
+                } else {
+                    if let Some(ev) = TRACKER
+                        .lock()
+                        .ok()
+                        .and_then(|mut t| t.as_mut().and_then(|t| t.on_key(kb.vkCode, down)))
+                    {
+                        send_event(match ev {
+                            PttEvent::Start => AppEvent::PttDown,
+                            PttEvent::Stop => AppEvent::PttUp,
+                        });
+                    }
+                    // Swallow non-modifier hotkeys (Win would open the Start
+                    // menu, CapsLock would toggle, F1 would open Help — on
+                    // every dictation).
+                    use std::sync::atomic::Ordering;
+                    if SWALLOW_VKS
+                        .iter()
+                        .any(|a| a.load(Ordering::Relaxed) == kb.vkCode)
+                    {
+                        return LRESULT(1);
+                    }
                 }
             }
         }
@@ -307,10 +370,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         WM_DESTROY => {
+            // Remove the icon while the window is still alive — after
+            // DestroyWindow returns, NIM_DELETE fails and the icon ghosts.
+            remove_tray_icon(hwnd);
             PostQuitMessage(0);
             LRESULT(0)
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        _ => {
+            // Explorer restarted → all tray icons were wiped; re-add ours.
+            if Some(&msg) == TASKBAR_CREATED_MSG.get() {
+                let tip = TRAY_TIP.get().map(String::as_str).unwrap_or("FastWord");
+                if let Err(e) = add_tray_icon(hwnd, tip) {
+                    logging::log(&format!("tray icon re-add failed: {e:#}"));
+                } else {
+                    logging::log("tray icon re-added after Explorer restart");
+                }
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
     }
 }
 
@@ -342,6 +420,9 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         hwnd,
         None,
     );
+    // KB135788: without this no-op message, the *next* popup menu on this
+    // hidden window can fail to appear.
+    let _ = PostMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
     let _ = DestroyMenu(menu);
 
     match cmd.0 as usize {
@@ -379,7 +460,9 @@ fn shell_open(path: &str) {
 fn run_message_loop() {
     let mut msg = MSG::default();
     unsafe {
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        // GetMessageW returns -1 on error, which BOOL::as_bool() would treat
+        // as true and spin on a garbage MSG — compare > 0 instead.
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -408,6 +491,7 @@ fn beep(enabled: bool, style: windows::Win32::UI::WindowsAndMessaging::MESSAGEBO
 fn controller_loop(
     rx: Receiver<AppEvent>,
     mut client: sidecar::SidecarClient,
+    spawner: sidecar::SidecarSpawner,
     cfg: ControllerConfig,
 ) {
     // cpal streams are not Send, so the recorder lives here, on the thread
@@ -428,8 +512,18 @@ fn controller_loop(
         Err(e) => logging::log(&format!("warmup failed: {e:#}")),
     }
 
+    // Events that arrived while a transcription was in flight are re-queued
+    // here so a dictation started during inference isn't silently dropped.
+    let mut pending: VecDeque<AppEvent> = VecDeque::new();
     let mut recording = false;
-    while let Ok(event) = rx.recv() {
+    loop {
+        let event = match pending.pop_front() {
+            Some(e) => e,
+            None => match rx.recv() {
+                Ok(e) => e,
+                Err(_) => break,
+            },
+        };
         match event {
             AppEvent::Quit => break,
             AppEvent::PttDown if !recording => match recorder.start() {
@@ -460,12 +554,23 @@ fn controller_loop(
                     continue;
                 }
                 let t = std::time::Instant::now();
-                match client.transcribe(
+                let result = client.transcribe(
                     &pcm,
                     &cfg.language,
                     cfg.initial_prompt.as_deref(),
                     cfg.skip_empty,
-                ) {
+                );
+                // Drain events that queued up during inference: Escape
+                // discards this result; everything else (a new dictation's
+                // PttDown/PttUp) is re-queued and handled next.
+                let mut cancelled = false;
+                while let Ok(ev) = rx.try_recv() {
+                    match ev {
+                        AppEvent::CancelKey => cancelled = true,
+                        other => pending.push_back(other),
+                    }
+                }
+                match result {
                     Ok(raw) => {
                         let text = if cfg.cleanup_enabled {
                             postprocess::clean(&raw)
@@ -477,15 +582,6 @@ fn controller_loop(
                             t.elapsed().as_secs_f32(),
                             text.chars().count()
                         ));
-                        // Escape pressed while we were transcribing → discard.
-                        let mut cancelled = false;
-                        while let Ok(ev) = rx.try_recv() {
-                            match ev {
-                                AppEvent::CancelKey => cancelled = true,
-                                AppEvent::Quit => return,
-                                _ => {}
-                            }
-                        }
                         if cancelled {
                             logging::log("result discarded (Escape during transcription)");
                             continue;
@@ -508,6 +604,20 @@ fn controller_loop(
                     Err(e) => {
                         logging::log(&format!("transcription failed: {e:#}"));
                         beep(cfg.beeps, MB_ICONHAND);
+                        // If the sidecar process died, respawn it so the next
+                        // dictation works without restarting the app.
+                        if !client.is_alive() {
+                            logging::log("sidecar is dead — respawning");
+                            match spawner.spawn() {
+                                Ok(new_client) => {
+                                    client = new_client;
+                                    logging::log("sidecar respawned");
+                                }
+                                Err(e) => {
+                                    logging::log(&format!("sidecar respawn failed: {e:#}"))
+                                }
+                            }
+                        }
                     }
                 }
             }

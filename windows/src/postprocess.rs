@@ -113,7 +113,7 @@ fn strip_known_hallucinations(input: &str) -> String {
                 // Whole-phrase boundary match where the phrase dominates the
                 // line (at most 4 extra characters around it).
                 if trimmed.chars().count() <= phrase.chars().count() + 4
-                    && contains_with_boundaries(&trimmed, phrase)
+                    && contains_with_word_boundaries(&trimmed, phrase)
                 {
                     return false;
                 }
@@ -124,27 +124,35 @@ fn strip_known_hallucinations(input: &str) -> String {
     kept.join("\n")
 }
 
-/// `haystack.contains(needle)` with word-ish boundaries: the characters
-/// immediately before and after the match must not be alphanumeric.
-fn contains_with_boundaries(haystack: &str, needle: &str) -> bool {
-    let mut search_from = 0;
-    while let Some(rel) = haystack[search_from..].find(needle) {
-        let start = search_from + rel;
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// `haystack.contains(needle)` with regex-`\b` semantics at both ends (the
+/// Swift original wraps the escaped phrase in `\b…\b`): a boundary exists
+/// where word-char-ness flips, with "outside the string" counting as
+/// non-word. Notably, a phrase that *ends* in punctuation (`"субтитры:"`)
+/// can never boundary-match before a space — exactly like `\b` — so such
+/// phrases are only dropped on exact line equality.
+fn contains_with_word_boundaries(haystack: &str, needle: &str) -> bool {
+    let first_w = needle.chars().next().map_or(false, is_word_char);
+    let last_w = needle.chars().next_back().map_or(false, is_word_char);
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(needle) {
+        let start = from + rel;
         let end = start + needle.len();
-        let before_ok = haystack[..start]
-            .chars()
-            .next_back()
-            .map_or(true, |c| !c.is_alphanumeric());
-        let after_ok = haystack[end..]
-            .chars()
-            .next()
-            .map_or(true, |c| !c.is_alphanumeric());
-        if before_ok && after_ok {
+        let prev_w = haystack[..start].chars().next_back().map_or(false, is_word_char);
+        let next_w = haystack[end..].chars().next().map_or(false, is_word_char);
+        if prev_w != first_w && next_w != last_w {
             return true;
         }
-        // Advance past this occurrence and keep looking.
-        search_from = start + needle.len().max(1);
-        if search_from >= haystack.len() {
+        // Advance one char and keep looking.
+        from = start
+            + haystack[start..]
+                .chars()
+                .next()
+                .map_or(1, |c| c.len_utf8());
+        if from >= haystack.len() {
             break;
         }
     }
@@ -154,59 +162,89 @@ fn contains_with_boundaries(haystack: &str, needle: &str) -> bool {
 /// Collapse the same word repeated 4+ times in a row to one occurrence, and
 /// the same 2-word phrase repeated 3+ times to one occurrence. Token-based
 /// (the Swift version uses `\b\w+` regexes with backreferences, which the
-/// `regex` crate doesn't support); only "pure word" tokens are collapsed so
-/// punctuation-separated repeats like "yes, yes, yes" survive, matching the
-/// Swift behaviour.
+/// `regex` crate doesn't support). Like the Swift `\b(\w+)(\s+\1\b){3,}`,
+/// the *final* repetition may carry trailing punctuation ("so so so so." →
+/// "so."), while punctuation between repeats ("yes, yes, yes") blocks the
+/// collapse.
 fn collapse_repeats(input: &str) -> String {
-    let tokens: Vec<&str> = input.split(' ').collect();
-    let is_word = |t: &str| !t.is_empty() && t.chars().all(|c| c.is_alphanumeric() || c == '_');
+    /// Split a token into (word core, trailing punctuation). None if the
+    /// token isn't "word + optional trailing non-word chars".
+    fn core_trail(t: &str) -> Option<(&str, &str)> {
+        let core_end = t
+            .char_indices()
+            .take_while(|(_, c)| is_word_char(*c))
+            .last()
+            .map(|(i, c)| i + c.len_utf8())?;
+        let (core, trail) = t.split_at(core_end);
+        if trail.chars().all(|c| !is_word_char(c)) {
+            Some((core, trail))
+        } else {
+            None
+        }
+    }
     let eq = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
 
-    // Pass 1: single word repeated 4+ times.
-    let mut out: Vec<&str> = Vec::with_capacity(tokens.len());
+    // Pass 1: single word repeated 4+ times. A run continues while each
+    // repeat is punctuation-free; a repeat with trailing punctuation ends
+    // the run (and its punctuation survives the collapse).
+    let tokens: Vec<&str> = input.split(' ').collect();
+    let mut out: Vec<String> = Vec::with_capacity(tokens.len());
     let mut i = 0;
     while i < tokens.len() {
-        let t = tokens[i];
-        if is_word(t) {
-            let mut j = i + 1;
-            while j < tokens.len() && is_word(tokens[j]) && eq(tokens[j], t) {
-                j += 1;
+        if let Some((core, _)) = core_trail(tokens[i]) {
+            let mut j = i;
+            while core_trail(tokens[j]).unwrap().1.is_empty() && j + 1 < tokens.len() {
+                match core_trail(tokens[j + 1]) {
+                    Some((c2, _)) if eq(c2, core) => j += 1,
+                    _ => break,
+                }
             }
-            if j - i >= 4 {
-                out.push(t);
-                i = j;
+            if j - i + 1 >= 4 {
+                let (_, last_trail) = core_trail(tokens[j]).unwrap();
+                out.push(format!("{core}{last_trail}"));
+                i = j + 1;
                 continue;
             }
         }
-        out.push(t);
-        i = 1 + i;
+        out.push(tokens[i].to_string());
+        i += 1;
     }
 
-    // Pass 2: 2-word phrase repeated 3+ times.
+    // Pass 2: 2-word phrase repeated 3+ times; only the very last token of
+    // the run may carry trailing punctuation.
     let tokens = out;
-    let mut out: Vec<&str> = Vec::with_capacity(tokens.len());
+    let mut out: Vec<String> = Vec::with_capacity(tokens.len());
     let mut i = 0;
     while i < tokens.len() {
-        if i + 1 < tokens.len() && is_word(tokens[i]) && is_word(tokens[i + 1]) {
-            let mut j = i + 2;
-            let mut reps = 1;
-            while j + 1 < tokens.len()
-                && is_word(tokens[j])
-                && is_word(tokens[j + 1])
-                && eq(tokens[j], tokens[i])
-                && eq(tokens[j + 1], tokens[i + 1])
+        if i + 1 < tokens.len() {
+            if let (Some((ca, ta)), Some((cb, _))) =
+                (core_trail(&tokens[i]), core_trail(&tokens[i + 1]))
             {
-                reps += 1;
-                j += 2;
-            }
-            if reps >= 3 {
-                out.push(tokens[i]);
-                out.push(tokens[i + 1]);
-                i = j;
-                continue;
+                if ta.is_empty() {
+                    // j = index of the first token of the last matched pair.
+                    let mut j = i;
+                    while core_trail(&tokens[j + 1]).unwrap().1.is_empty() && j + 3 < tokens.len()
+                    {
+                        match (core_trail(&tokens[j + 2]), core_trail(&tokens[j + 3])) {
+                            (Some((c1, t1)), Some((c2, _)))
+                                if t1.is_empty() && eq(c1, ca) && eq(c2, cb) =>
+                            {
+                                j += 2
+                            }
+                            _ => break,
+                        }
+                    }
+                    if (j - i) / 2 + 1 >= 3 {
+                        let (_, last_trail) = core_trail(&tokens[j + 1]).unwrap();
+                        out.push(ca.to_string());
+                        out.push(format!("{cb}{last_trail}"));
+                        i = j + 2;
+                        continue;
+                    }
+                }
             }
         }
-        out.push(tokens[i]);
+        out.push(tokens[i].clone());
         i += 1;
     }
 
@@ -292,6 +330,21 @@ mod tests {
     #[test]
     fn does_not_collapse_punctuated_repeats() {
         assert_eq!(clean("yes, yes, yes, yes, yes."), "yes, yes, yes, yes, yes.");
+    }
+
+    #[test]
+    fn collapses_repeats_with_trailing_punctuation() {
+        // Whisper's loops usually end with a period — the Swift regex's \b
+        // lets the final repeat carry punctuation, and so do we.
+        assert_eq!(clean("so so so so."), "so.");
+        assert_eq!(clean("thank you thank you thank you."), "thank you.");
+    }
+
+    #[test]
+    fn keeps_swift_parity_for_punctuated_phrase_boundaries() {
+        // "субтитры:" ends in ':' — Swift's \b can never match there, so a
+        // line *containing* it (vs. exactly equal to it) must survive.
+        assert_eq!(clean("субтитры: ив"), "субтитры: ив");
     }
 
     #[test]

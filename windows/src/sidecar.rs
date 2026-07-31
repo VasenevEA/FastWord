@@ -100,6 +100,20 @@ pub fn find_sidecar_exe() -> Option<PathBuf> {
     None
 }
 
+/// The parameters needed to (re)start the sidecar — kept by the controller
+/// so a crashed sidecar can be respawned without restarting the app.
+pub struct SidecarSpawner {
+    pub exe: PathBuf,
+    pub model: PathBuf,
+    pub idle_evict_secs: u64,
+}
+
+impl SidecarSpawner {
+    pub fn spawn(&self) -> Result<SidecarClient> {
+        SidecarClient::spawn(&self.exe, &self.model, self.idle_evict_secs)
+    }
+}
+
 pub struct SidecarClient {
     child: Child,
     stdin: ChildStdin,
@@ -159,6 +173,11 @@ impl SidecarClient {
         let id = self.take_id();
         let req = Request::transcribe(&id, pcm, language, initial_prompt, skip_empty);
         self.roundtrip(&req)
+    }
+
+    /// False if the sidecar process has exited.
+    pub fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     fn take_id(&mut self) -> String {

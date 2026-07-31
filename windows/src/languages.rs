@@ -63,7 +63,13 @@ pub fn resolve(config_language: &str) -> (String, Option<String>) {
             Some(code) => (code.to_string(), None),
             None => (String::new(), None),
         },
-        code => (code.to_string(), None),
+        code => {
+            // Be forgiving about locale-style values: "ru-RU" → "ru".
+            // Unlisted codes pass through as-is — Whisper knows ~99
+            // languages, far more than our curated list.
+            let normalized = code.split(['-', '_']).next().unwrap_or(code).to_string();
+            (normalized, None)
+        }
     }
 }
 

@@ -39,7 +39,13 @@ fn file() -> &'static Mutex<Option<std::fs::File>> {
 pub fn log(msg: &str) {
     let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{stamp}] {msg}\n");
-    eprint!("{line}");
+    // Console output only in debug builds — release uses the windows
+    // subsystem where stderr has no valid handle and writes can panic.
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        let _ = std::io::stderr().write_all(line.as_bytes());
+    }
     if let Ok(mut guard) = file().lock() {
         if let Some(f) = guard.as_mut() {
             let _ = f.write_all(line.as_bytes());
