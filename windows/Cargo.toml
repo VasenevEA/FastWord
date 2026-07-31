@@ -1,0 +1,45 @@
+[package]
+name = "fastword-win"
+version = "0.6.0"
+edition = "2021"
+description = "FastWord for Windows — local, private, push-to-talk dictation"
+license = "MIT"
+
+[[bin]]
+name = "fastword-win"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+base64 = "0.22"
+regex = "1"
+chrono = "0.4"
+cpal = "0.15"
+arboard = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+sys-locale = "0.3"
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
