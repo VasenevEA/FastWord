@@ -10,15 +10,23 @@ name = "fastword-sidecar"
 path = "src/main.rs"
 
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+anyhow = "1.0"
+
+# Whisper backend: Metal on Apple Silicon, plain CPU elsewhere. The GigaAM
+# engine (sherpa-onnx) is macOS-only for now; other platforms compile a stub
+# that reports the engine as unavailable.
+[target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.14", features = ["metal"] }
 # Official sherpa-onnx Rust bindings — used for the GigaAM-v3 Russian engine.
 # Statically linked by default; if the prebuilt lib download fails on the
 # build machine the env var SHERPA_ONNX_LIB_DIR can override it.
 sherpa-onnx = "1.13"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-base64 = "0.22"
-anyhow = "1.0"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = "0.14"
 
 [profile.release]
 opt-level = "z"        # smaller binary; whisper.cpp itself does the heavy lifting

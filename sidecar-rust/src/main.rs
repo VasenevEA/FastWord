@@ -19,7 +19,34 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+#[cfg(target_os = "macos")]
 mod gigaam;
+
+// sherpa-onnx (GigaAM's runtime) is only wired up on macOS for now. Other
+// platforms get a stub with the same API surface that reports the engine as
+// unavailable, so the protocol stays identical everywhere.
+#[cfg(not(target_os = "macos"))]
+mod gigaam {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::{anyhow, Result};
+
+    pub struct Recognizer;
+
+    impl Recognizer {
+        pub fn load(_model_dir: &Path) -> Result<Self> {
+            Err(anyhow!("GigaAM engine is not available on this platform yet"))
+        }
+
+        pub fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String> {
+            Err(anyhow!("GigaAM engine is not available on this platform yet"))
+        }
+    }
+
+    pub fn default_model_dir() -> Option<PathBuf> {
+        None
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -327,4 +354,96 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_pcm(samples: &[f32]) -> String {
+        let mut bytes = Vec::with_capacity(samples.len() * 4);
+        for s in samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    #[test]
+    fn decode_pcm_roundtrip() {
+        let samples = vec![0.0f32, 1.0, -1.0, 0.5, -0.25];
+        let decoded = decode_pcm(&encode_pcm(&samples)).unwrap();
+        assert_eq!(decoded, samples);
+    }
+
+    #[test]
+    fn decode_pcm_empty() {
+        assert_eq!(decode_pcm("").unwrap(), Vec::<f32>::new());
+    }
+
+    #[test]
+    fn decode_pcm_rejects_bad_base64() {
+        assert!(decode_pcm("not base64!!!").is_err());
+    }
+
+    #[test]
+    fn decode_pcm_rejects_unaligned_length() {
+        // 3 bytes is not a whole number of f32 samples.
+        let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
+        assert!(decode_pcm(&b64).is_err());
+    }
+
+    #[test]
+    fn request_parses_minimal_transcribe() {
+        let req: Request =
+            serde_json::from_str(r#"{"id":"1","cmd":"transcribe","audio_b64":"AAAAAA=="}"#)
+                .unwrap();
+        assert_eq!(req.id, "1");
+        assert_eq!(req.cmd, "transcribe");
+        assert_eq!(req.audio_b64.as_deref(), Some("AAAAAA=="));
+        assert!(req.language.is_none());
+        assert!(req.engine.is_none());
+    }
+
+    #[test]
+    fn request_parses_full_swift_payload() {
+        // Mirrors what SidecarClient.swift actually sends.
+        let req: Request = serde_json::from_str(
+            r#"{"id":"abc","cmd":"transcribe","sample_rate":16000,"audio_b64":"AAAAAA==",
+                "language":"ru","no_speech_thold":0.6,
+                "initial_prompt":"Это голосовая заметка на русском.","engine":"gigaam"}"#,
+        )
+        .unwrap();
+        assert_eq!(req.sample_rate, Some(16000));
+        assert_eq!(req.language.as_deref(), Some("ru"));
+        assert_eq!(req.engine.as_deref(), Some("gigaam"));
+    }
+
+    #[test]
+    fn request_rejects_unknown_fields() {
+        let res: Result<Request, _> =
+            serde_json::from_str(r#"{"id":"1","cmd":"transcribe","bogus":true}"#);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn response_serializes_without_null_fields() {
+        let ok = Response {
+            id: "1".into(),
+            text: Some("hello".into()),
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&ok).unwrap(),
+            r#"{"id":"1","text":"hello"}"#
+        );
+        let err = Response {
+            id: "2".into(),
+            text: None,
+            error: Some("boom".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&err).unwrap(),
+            r#"{"id":"2","error":"boom"}"#
+        );
+    }
 }
