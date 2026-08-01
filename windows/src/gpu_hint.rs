@@ -58,14 +58,9 @@ pub fn maybe_offer(backend: &str) {
     crate::logging::log("NVIDIA GPU detected with a CPU-only sidecar — offering GPU setup");
 
     std::thread::spawn(|| {
-        let text = wide(
-            "An NVIDIA GPU was detected, but FastWord is using CPU \
-             transcription.\n\nThe GPU is roughly 10x faster. To enable it, run\n\
-             windows\\scripts\\setup-gpu.ps1\n(installs the CUDA toolkit — needs \
-             one admin confirmation — and rebuilds the transcription engine).\n\n\
-             Open the scripts folder now?",
-        );
-        let caption = wide("FastWord — GPU available");
+        let ui = crate::languages::ui();
+        let text = wide(ui.gpu_text);
+        let caption = wide(ui.gpu_title);
         let clicked = unsafe {
             MessageBoxW(
                 None,

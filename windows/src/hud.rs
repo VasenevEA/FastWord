@@ -106,13 +106,11 @@ fn phase() -> f64 {
 }
 
 fn label(mode: HudState) -> &'static str {
-    let ru = crate::languages::system_language() == Some("ru");
-    match (mode, ru) {
-        (HudState::Recording, true) => "Слушаю…",
-        (HudState::Recording, false) => "Listening…",
-        (HudState::Transcribing, true) => "Распознаю…",
-        (HudState::Transcribing, false) => "Transcribing…",
-        _ => "",
+    let ui = crate::languages::ui();
+    match mode {
+        HudState::Recording => ui.hud_listening,
+        HudState::Transcribing => ui.hud_transcribing,
+        HudState::Hidden => "",
     }
 }
 

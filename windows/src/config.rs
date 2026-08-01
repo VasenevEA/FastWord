@@ -118,6 +118,73 @@ pub fn parse(text: &str) -> Result<Config> {
     toml::from_str(text).context("parsing config.toml")
 }
 
+/// Render a Config back into the commented config.toml format (the
+/// settings window saves through this).
+pub fn render(cfg: &Config) -> String {
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        r#"# FastWord for Windows configuration.
+# Changes take effect after restarting FastWord (tray icon -> Quit).
+
+# Push-to-talk key: hold to record, release to insert the transcript.
+# Accepted: left_ctrl, right_ctrl, left_alt, right_alt, left_shift,
+# right_shift, left_win, right_win, caps_lock, scroll_lock, pause, f1..f24.
+hotkey = "{hotkey}"
+
+# Optional second key ("" = disabled).
+hotkey_secondary = "{hotkey_secondary}"
+
+# How the second key combines with the first:
+# "either" - either key alone triggers recording
+# "both"   - both keys must be held together
+combo_mode = "{combo_mode}"
+
+# Transcription language:
+# "system" - use the Windows display language (recommended)
+# "auto"   - let Whisper auto-detect (unreliable on short clips)
+# or an ISO code: "ru", "en", "zh", "de", ...
+language = "{language}"
+
+# Path to a ggml whisper.cpp model. Empty means
+# %LOCALAPPDATA%\fastword\models\ggml-large-v3-turbo-q5_0.bin
+# (run scripts\get-model.ps1 to download it there).
+model_path = "{model_path}"
+
+# Seconds of idle time before the model is dropped from RAM.
+idle_evict_secs = {idle_evict_secs}
+
+# Skip clearly-silent recordings instead of pasting hallucinated text.
+skip_empty = {skip_empty}
+
+# Clean common Whisper artefacts (YouTube-credit phrases, word repeats).
+cleanup_enabled = {cleanup_enabled}
+
+# Floating on-screen indicator while recording/transcribing (macOS-style HUD).
+hud = {hud}
+
+# Beep on record start/stop and on errors (off by default - the HUD already
+# gives feedback).
+beeps = {beeps}
+"#,
+        hotkey = esc(&cfg.hotkey),
+        hotkey_secondary = esc(&cfg.hotkey_secondary),
+        combo_mode = esc(&cfg.combo_mode),
+        language = esc(&cfg.language),
+        model_path = esc(&cfg.model_path),
+        idle_evict_secs = cfg.idle_evict_secs,
+        skip_empty = cfg.skip_empty,
+        cleanup_enabled = cfg.cleanup_enabled,
+        hud = cfg.hud,
+        beeps = cfg.beeps,
+    )
+}
+
+/// Persist the config (settings window / model picker).
+pub fn save(cfg: &Config) -> Result<()> {
+    std::fs::create_dir_all(config_dir()).context("creating config dir")?;
+    std::fs::write(config_path(), render(cfg)).context("writing config.toml")
+}
+
 /// Load the config, writing the commented default file on first run.
 pub fn load_or_create() -> Result<Config> {
     let path = config_path();
@@ -158,6 +225,44 @@ mod tests {
         assert_eq!(cfg.cleanup_enabled, def.cleanup_enabled);
         assert_eq!(cfg.beeps, def.beeps);
         assert_eq!(cfg.hud, def.hud);
+    }
+
+    #[test]
+    fn render_parse_roundtrip() {
+        let cfg = Config {
+            hotkey: "f13".into(),
+            hotkey_secondary: "left_ctrl".into(),
+            combo_mode: "both".into(),
+            language: "ru".into(),
+            model_path: "C:\\models\\ggml-small.bin".into(),
+            idle_evict_secs: 1800,
+            skip_empty: false,
+            cleanup_enabled: false,
+            beeps: true,
+            hud: false,
+        };
+        let back = parse(&render(&cfg)).unwrap();
+        assert_eq!(back.hotkey, cfg.hotkey);
+        assert_eq!(back.hotkey_secondary, cfg.hotkey_secondary);
+        assert_eq!(back.combo_mode, cfg.combo_mode);
+        assert_eq!(back.language, cfg.language);
+        assert_eq!(back.model_path, cfg.model_path);
+        assert_eq!(back.idle_evict_secs, cfg.idle_evict_secs);
+        assert_eq!(back.skip_empty, cfg.skip_empty);
+        assert_eq!(back.cleanup_enabled, cfg.cleanup_enabled);
+        assert_eq!(back.beeps, cfg.beeps);
+        assert_eq!(back.hud, cfg.hud);
+    }
+
+    #[test]
+    fn render_default_matches_default_template() {
+        // The generated file for a default config must parse identically to
+        // the shipped DEFAULT_CONFIG_TOML.
+        let a = parse(&render(&Config::default())).unwrap();
+        let b = parse(DEFAULT_CONFIG_TOML).unwrap();
+        assert_eq!(a.hotkey, b.hotkey);
+        assert_eq!(a.beeps, b.beeps);
+        assert_eq!(a.hud, b.hud);
     }
 
     #[test]

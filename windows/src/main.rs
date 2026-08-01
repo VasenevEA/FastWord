@@ -12,10 +12,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod autostart;
 mod config;
 mod gpu_hint;
 mod history;
 mod hud;
+mod models;
+mod ui;
 mod hotkey;
 mod insert;
 mod languages;
@@ -54,12 +57,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 const WM_TRAYICON: u32 = WM_APP + 1;
+/// Programmatic "open the main window on tab N" (wparam = tab index).
+/// Used by tests/automation; the tray menu goes through the same path.
+const WM_OPEN_UI: u32 = WM_APP + 2;
 const TRAY_ICON_ID: u32 = 1;
 
-const CMD_OPEN_CONFIG: usize = 1;
-const CMD_OPEN_HISTORY: usize = 2;
-const CMD_OPEN_LOG: usize = 3;
-const CMD_QUIT: usize = 4;
+const CMD_SHOW_HISTORY: usize = 1;
+const CMD_SHOW_SETTINGS: usize = 2;
+const CMD_SHOW_MODELS: usize = 3;
+const CMD_OPEN_LOG: usize = 4;
+const CMD_QUIT: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppEvent {
@@ -224,7 +231,7 @@ fn run_app() -> Result<()> {
             logging::log(&format!("HUD unavailable: {e:#}"));
         }
     }
-    let tip = format!("FastWord — hold {} to dictate", cfg.hotkey);
+    let tip = languages::ui().tip_hold_to_dictate.replace("{key}", &cfg.hotkey);
     let _ = TRAY_TIP.set(tip.clone());
     let taskbar_msg = unsafe {
         let name = wide("TaskbarCreated");
@@ -341,7 +348,7 @@ fn create_hidden_window() -> Result<HWND> {
 /// The embedded app icon (resource id 1, set by build.rs / winresource) —
 /// the same microphone icon the macOS app uses. Falls back to the generic
 /// application icon if the resource is missing.
-fn app_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
+pub fn app_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
     unsafe {
         GetModuleHandleW(None)
             .ok()
@@ -391,6 +398,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             LRESULT(0)
         }
+        WM_OPEN_UI => {
+            ui::open(wparam.0.min(2));
+            LRESULT(0)
+        }
         WM_DESTROY => {
             // Remove the icon while the window is still alive — after
             // DestroyWindow returns, NIM_DELETE fails and the icon ghosts.
@@ -416,17 +427,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 
 unsafe fn show_tray_menu(hwnd: HWND) {
     let Ok(menu) = CreatePopupMenu() else { return };
+    let ui = languages::ui();
     let items: [(usize, &str); 3] = [
-        (CMD_OPEN_CONFIG, "Open config"),
-        (CMD_OPEN_HISTORY, "Open history folder"),
-        (CMD_OPEN_LOG, "Open log"),
+        (CMD_SHOW_HISTORY, ui.menu_open_history),
+        (CMD_SHOW_SETTINGS, ui.menu_settings),
+        (CMD_SHOW_MODELS, ui.menu_models),
     ];
     for (id, label) in items {
         let label_w = wide(label);
         let _ = AppendMenuW(menu, MF_STRING, id, PCWSTR(label_w.as_ptr()));
     }
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-    let quit_w = wide("Quit FastWord");
+    let log_w = wide(ui.menu_open_log);
+    let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_LOG, PCWSTR(log_w.as_ptr()));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+    let quit_w = wide(ui.menu_quit);
     let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, PCWSTR(quit_w.as_ptr()));
 
     let mut pt = Default::default();
@@ -448,8 +463,9 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     let _ = DestroyMenu(menu);
 
     match cmd.0 as usize {
-        CMD_OPEN_CONFIG => shell_open(&config::config_path().to_string_lossy()),
-        CMD_OPEN_HISTORY => shell_open(&history::default_dir().to_string_lossy()),
+        CMD_SHOW_HISTORY => ui::open(ui::TAB_HISTORY),
+        CMD_SHOW_SETTINGS => ui::open(ui::TAB_SETTINGS),
+        CMD_SHOW_MODELS => ui::open(ui::TAB_MODELS),
         CMD_OPEN_LOG => shell_open(
             &dirs::data_local_dir()
                 .unwrap_or_default()
@@ -462,6 +478,24 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         }
         _ => {}
     }
+}
+
+/// Save-and-restart: relaunch the exe after a short delay (letting this
+/// process release the single-instance mutex) and quit.
+pub fn restart_app() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
+        .arg(format!(
+            "Start-Sleep -Milliseconds 900; Start-Process '{}'",
+            exe.display()
+        ))
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    logging::log("restarting after settings change");
+    unsafe { PostQuitMessage(0) };
 }
 
 pub fn shell_open(path: &str) {

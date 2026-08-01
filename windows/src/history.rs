@@ -52,10 +52,21 @@ impl HistoryStore {
         Ok(())
     }
 
-    /// Newest first, capped at 1000 like the macOS app. (No history UI on
-    /// Windows yet — kept for tests and future use; the sqlite file itself
-    /// is browsable with any client.)
-    #[allow(dead_code)]
+    pub fn delete(&self, id: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM entries WHERE id = ?1;", params![id])
+            .context("deleting history entry")?;
+        Ok(())
+    }
+
+    pub fn delete_all(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM entries;", [])
+            .context("clearing history")?;
+        Ok(())
+    }
+
+    /// Newest first, capped at 1000 like the macOS app.
     pub fn load_all(&self) -> Result<Vec<(String, String, f64)>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, text, created_at FROM entries ORDER BY created_at DESC LIMIT 1000;",
@@ -104,6 +115,30 @@ mod tests {
         let all = store.load_all().unwrap();
         assert_eq!(all[0].1, "second");
         assert_eq!(all[1].1, "first");
+    }
+
+    #[test]
+    fn delete_removes_one_entry() {
+        let path = temp_db_path("delete.sqlite");
+        let store = HistoryStore::open(&path).unwrap();
+        store.insert("keep me").unwrap();
+        store.insert("delete me").unwrap();
+        let all = store.load_all().unwrap();
+        let id = &all.iter().find(|(_, t, _)| t == "delete me").unwrap().0;
+        store.delete(id).unwrap();
+        let rest = store.load_all().unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].1, "keep me");
+    }
+
+    #[test]
+    fn delete_all_empties_store() {
+        let path = temp_db_path("clear.sqlite");
+        let store = HistoryStore::open(&path).unwrap();
+        store.insert("a").unwrap();
+        store.insert("b").unwrap();
+        store.delete_all().unwrap();
+        assert!(store.load_all().unwrap().is_empty());
     }
 
     #[test]
