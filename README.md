@@ -4,6 +4,8 @@ Local, private, push-to-talk dictation for macOS — powered by `whisper.cpp` ru
 
 Hold a hotkey, speak, release — your words appear in any focused text field. Nothing leaves your Mac.
 
+> **Windows:** a native Windows port lives in [`windows/`](windows/README.md) — same sidecar and protocol, Rust tray app with an installer, GPU (CUDA) support and the GigaAM Russian engine included. CI builds the installer on every push.
+
 ![FastWord demo — dictating in Russian, English, and Mandarin](docs/demo.gif)
 
 ## Why
@@ -45,6 +47,8 @@ Wispr Flow keeps ~800 MB resident even when you're not dictating because Electro
 ### From DMG (recommended)
 
 Download the latest signed and notarized `.dmg` from [Releases](https://github.com/VasenevEA/FastWord/releases), drag `FastWord.app` to `Applications`, and launch. The Whisper turbo Q5 model is bundled inside the app — no first-run download.
+
+On Windows, download `FastWord-Setup-<version>.exe` from the same Releases page — see [windows/README.md](windows/README.md).
 
 ### From source
 

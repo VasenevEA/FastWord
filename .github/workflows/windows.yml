@@ -1,0 +1,96 @@
+name: windows
+
+on:
+  push:
+    branches: [main, windows]
+    tags: ["v*"]
+    paths:
+      - "sidecar-rust/**"
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  pull_request:
+    paths:
+      - "sidecar-rust/**"
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # release uploads on tag builds
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # The cmake crate strips /O flags and overrides CMAKE_*_FLAGS_RELEASE,
+      # producing an unoptimized whisper build unless these are pre-defined
+      # (whisper-rs-sys passes CMAKE_* env through as -D defines).
+      CMAKE_C_FLAGS_RELEASE: "/O2 /Ob2 /DNDEBUG"
+      CMAKE_CXX_FLAGS_RELEASE: "/O2 /Ob2 /DNDEBUG"
+      # sherpa-onnx (GigaAM) ships a static-MT prebuilt; keep the whole
+      # binary on the static CRT so the linker agrees.
+      RUSTFLAGS: "-C target-feature=+crt-static"
+      CMAKE_GENERATOR: Ninja
+      # bindgen needs libclang; the runner image ships LLVM here.
+      LIBCLANG_PATH: 'C:\Program Files\LLVM\bin'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            sidecar-rust
+            windows
+
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Test sidecar
+        working-directory: sidecar-rust
+        run: cargo test --release
+
+      - name: Test app
+        working-directory: windows
+        run: cargo test --release
+
+      - name: Build sidecar
+        working-directory: sidecar-rust
+        run: cargo build --release
+
+      - name: Build app
+        working-directory: windows
+        run: cargo build --release
+
+      - name: Stage binaries
+        run: Copy-Item sidecar-rust\target\release\fastword-sidecar.exe windows\target\release\
+
+      - name: Build installer (Inno Setup)
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\installer\fastword.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastWord-Setup
+          path: windows/target/installer/*.exe
+
+      - name: Upload raw binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: FastWord-windows-binaries
+          path: |
+            windows/target/release/fastword-win.exe
+            windows/target/release/fastword-sidecar.exe
+
+      # Tag builds (v*) publish the installer to the GitHub Release, next
+      # to the macOS DMG.
+      - name: Attach installer to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows/target/installer/*.exe
+          draft: true
+          generate_release_notes: true

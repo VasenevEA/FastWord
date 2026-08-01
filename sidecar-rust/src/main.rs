@@ -125,13 +125,9 @@ impl ModelHolder {
 
         state.full(params, audio).context("whisper.full")?;
 
-        let n_segments = state.full_n_segments().context("full_n_segments")?;
         let mut out = String::new();
-        for i in 0..n_segments {
-            let seg = state
-                .full_get_segment_text(i)
-                .context("get segment text")?;
-            out.push_str(&seg);
+        for segment in state.as_iter() {
+            out.push_str(&segment.to_str_lossy().context("get segment text")?);
         }
         Ok(out.trim().to_string())
     }
@@ -145,9 +141,17 @@ impl ModelHolder {
 }
 
 fn num_cpus_or_default() -> i32 {
-    thread::available_parallelism()
-        .map(|n| n.get() as i32)
-        .unwrap_or(4)
+    // FASTWORD_THREADS overrides; otherwise physical cores. On SMT machines
+    // (e.g. 18C/36T Xeons) logical-core counts oversubscribe the memory
+    // bus and are measurably slower for whisper.
+    if let Some(n) = std::env::var("FASTWORD_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .filter(|&n| n > 0)
+    {
+        return n;
+    }
+    num_cpus::get_physical().max(1) as i32
 }
 
 fn decode_pcm(b64: &str) -> Result<Vec<f32>> {
@@ -208,10 +212,30 @@ impl Engines {
     }
 }
 
+/// Which inference backend this binary was compiled with. The client uses
+/// this to suggest a GPU build when it finds a capable GPU next to a
+/// CPU-only sidecar.
+fn backend_name() -> &'static str {
+    if cfg!(feature = "cuda") {
+        "cuda"
+    } else if cfg!(feature = "vulkan") {
+        "vulkan"
+    } else if cfg!(target_os = "macos") {
+        "metal"
+    } else {
+        "cpu"
+    }
+}
+
 fn handle(req: Request, engines: &Arc<Engines>) -> Response {
     let id = req.id.clone();
     let res: Result<String> = (|| {
         match req.cmd.as_str() {
+            "info" => Ok(format!(
+                "fastword-sidecar {} backend={}",
+                env!("CARGO_PKG_VERSION"),
+                backend_name()
+            )),
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
                 let mut h = engines.whisper.lock().unwrap();
@@ -327,4 +351,108 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_pcm(samples: &[f32]) -> String {
+        let mut bytes = Vec::with_capacity(samples.len() * 4);
+        for s in samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    #[test]
+    fn decode_pcm_roundtrip() {
+        let samples = vec![0.0f32, 1.0, -1.0, 0.5, -0.25];
+        let decoded = decode_pcm(&encode_pcm(&samples)).unwrap();
+        assert_eq!(decoded, samples);
+    }
+
+    #[test]
+    fn decode_pcm_empty() {
+        assert_eq!(decode_pcm("").unwrap(), Vec::<f32>::new());
+    }
+
+    #[test]
+    fn decode_pcm_rejects_bad_base64() {
+        assert!(decode_pcm("not base64!!!").is_err());
+    }
+
+    #[test]
+    fn decode_pcm_rejects_unaligned_length() {
+        // 3 bytes is not a whole number of f32 samples.
+        let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
+        assert!(decode_pcm(&b64).is_err());
+    }
+
+    #[test]
+    fn request_parses_minimal_transcribe() {
+        let req: Request =
+            serde_json::from_str(r#"{"id":"1","cmd":"transcribe","audio_b64":"AAAAAA=="}"#)
+                .unwrap();
+        assert_eq!(req.id, "1");
+        assert_eq!(req.cmd, "transcribe");
+        assert_eq!(req.audio_b64.as_deref(), Some("AAAAAA=="));
+        assert!(req.language.is_none());
+        assert!(req.engine.is_none());
+    }
+
+    #[test]
+    fn request_parses_full_swift_payload() {
+        // Mirrors what SidecarClient.swift actually sends.
+        let req: Request = serde_json::from_str(
+            r#"{"id":"abc","cmd":"transcribe","sample_rate":16000,"audio_b64":"AAAAAA==",
+                "language":"ru","no_speech_thold":0.6,
+                "initial_prompt":"Это голосовая заметка на русском.","engine":"gigaam"}"#,
+        )
+        .unwrap();
+        assert_eq!(req.sample_rate, Some(16000));
+        assert_eq!(req.language.as_deref(), Some("ru"));
+        assert_eq!(req.engine.as_deref(), Some("gigaam"));
+    }
+
+    #[test]
+    fn request_rejects_unknown_fields() {
+        let res: Result<Request, _> =
+            serde_json::from_str(r#"{"id":"1","cmd":"transcribe","bogus":true}"#);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn info_reports_version_and_backend() {
+        // `info` must not touch the model, so a dummy path is fine.
+        let engines = Arc::new(Engines::new(PathBuf::from("does-not-exist.bin"), None));
+        let req: Request = serde_json::from_str(r#"{"id":"i","cmd":"info"}"#).unwrap();
+        let resp = handle(req, &engines);
+        assert!(resp.error.is_none());
+        let text = resp.text.unwrap();
+        assert!(text.starts_with("fastword-sidecar "), "{text}");
+        assert!(text.contains("backend="), "{text}");
+    }
+
+    #[test]
+    fn response_serializes_without_null_fields() {
+        let ok = Response {
+            id: "1".into(),
+            text: Some("hello".into()),
+            error: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&ok).unwrap(),
+            r#"{"id":"1","text":"hello"}"#
+        );
+        let err = Response {
+            id: "2".into(),
+            text: None,
+            error: Some("boom".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&err).unwrap(),
+            r#"{"id":"2","error":"boom"}"#
+        );
+    }
 }
