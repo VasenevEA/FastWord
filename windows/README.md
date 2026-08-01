@@ -9,10 +9,12 @@ pasted into the focused text field. Nothing leaves your PC.
 
 ## Install
 
-Grab `FastWord-Setup-<version>.exe` from CI artifacts (or build it
-yourself, see below) and run it — a per-user install, no admin rights
-needed. On first launch FastWord offers to download a speech model
-(~550 MB) into `%LOCALAPPDATA%\fastword\models\`.
+Download `FastWord-Setup-<version>.exe` from
+[Releases](https://github.com/VasenevEA/FastWord/releases) and run it —
+a per-user install, no admin rights needed. (Development builds of the
+installer are also attached to every CI run as an artifact.) On first
+launch FastWord offers to download a speech model (~550 MB) into
+`%LOCALAPPDATA%\fastword\models\`.
 
 A tray icon appears. Hold **Right Ctrl**, dictate, release; an on-screen
 HUD (like the macOS one) shows recording and transcription state. Press
