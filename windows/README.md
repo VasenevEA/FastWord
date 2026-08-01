@@ -75,11 +75,22 @@ several GB) and rebuilds the sidecar with `--features cuda`. Kernels are
 built for RTX 30xx by default — pass `-Arch 89` for RTX 40xx, `-Arch 75`
 for RTX 20xx/GTX 16xx. After a restart the log shows `backend=cuda`.
 
+Note: the toolkit version must not exceed what the GPU driver supports
+(`nvidia-smi` prints the driver's ceiling as "CUDA Version") — a newer
+runtime builds fine but silently falls back to CPU. The script picks a
+compatible version automatically.
+
 ### Performance
 
-CPU ballpark on an 18-core Haswell Xeon:
-~2x realtime with the default `large-v3-turbo-q5_0` (a 5 s clip transcribes
-in ~10 s). On a slow machine download a smaller model and point
+Measured with `large-v3-turbo-q5_0` on a 5.4 s clip (18-core Haswell Xeon,
+RTX 3060):
+
+| Build | Transcription time |
+| --- | --- |
+| GPU (CUDA, RTX 3060) | **0.5 s** |
+| CPU (AVX2, 18 threads) | 11 s |
+
+On a slow machine without a GPU, download a smaller model and point
 `model_path` at it — `small` is roughly 10x faster than `large-v3-turbo`
 at noticeably lower accuracy:
 

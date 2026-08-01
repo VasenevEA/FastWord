@@ -109,6 +109,15 @@ $env:CMAKE_CUDA_ARCHITECTURES = $Arch
 # Ninja (bundled with Build Tools' CMake) drives nvcc directly.
 $env:CMAKE_GENERATOR = "Ninja"
 
+# nvcc writes multi-GB intermediates to %TMP%; if the system drive is tight,
+# fail-proof the build by using a scratch dir on the repo's drive instead.
+if ((Get-PSDrive ($env:SystemDrive.TrimEnd(":"))).Free -lt 5GB) {
+    $tmp = Join-Path $repo "windows\target\nvcc-tmp"
+    New-Item -ItemType Directory -Force $tmp | Out-Null
+    $env:TMP = $tmp; $env:TEMP = $tmp
+    Write-Host "System drive is low on space - nvcc temp redirected to $tmp"
+}
+
 Write-Host "`n=== Building sidecar with CUDA (takes a while - nvcc compiles GPU kernels) ==="
 Push-Location (Join-Path $repo "sidecar-rust")
 try { cargo build --release --features cuda } finally { Pop-Location }
