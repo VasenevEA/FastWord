@@ -62,11 +62,12 @@ const WM_TRAYICON: u32 = WM_APP + 1;
 const WM_OPEN_UI: u32 = WM_APP + 2;
 const TRAY_ICON_ID: u32 = 1;
 
-const CMD_SHOW_HISTORY: usize = 1;
-const CMD_SHOW_SETTINGS: usize = 2;
-const CMD_SHOW_MODELS: usize = 3;
-const CMD_OPEN_LOG: usize = 4;
-const CMD_QUIT: usize = 5;
+const CMD_OPEN_MAIN: usize = 1;
+const CMD_SHOW_HISTORY: usize = 2;
+const CMD_SHOW_SETTINGS: usize = 3;
+const CMD_SHOW_MODELS: usize = 4;
+const CMD_OPEN_LOG: usize = 5;
+const CMD_QUIT: usize = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppEvent {
@@ -136,6 +137,7 @@ fn run_app() -> Result<()> {
 
     let cfg = config::load_or_create()
         .with_context(|| format!("loading {}", config::config_path().display()))?;
+    languages::set_ui_language(&cfg.ui_language);
 
     let primary = hotkey::parse_hotkey(&cfg.hotkey)
         .ok_or_else(|| anyhow!("unknown hotkey \"{}\" in config.toml", cfg.hotkey))?;
@@ -420,7 +422,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     match msg {
         WM_TRAYICON => {
             let mouse = (lparam.0 as u32) & 0xFFFF;
-            if mouse == WM_RBUTTONUP || mouse == WM_LBUTTONUP {
+            if mouse == WM_LBUTTONUP {
+                // Plain click opens the window; the menu is on right-click.
+                ui::open(ui::TAB_HISTORY);
+            } else if mouse == WM_RBUTTONUP {
                 show_tray_menu(hwnd);
             }
             LRESULT(0)
@@ -455,6 +460,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 unsafe fn show_tray_menu(hwnd: HWND) {
     let Ok(menu) = CreatePopupMenu() else { return };
     let ui = languages::ui();
+    let main_w = wide("FastWord");
+    let _ = AppendMenuW(menu, MF_STRING, CMD_OPEN_MAIN, PCWSTR(main_w.as_ptr()));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let items: [(usize, &str); 3] = [
         (CMD_SHOW_HISTORY, ui.menu_open_history),
         (CMD_SHOW_SETTINGS, ui.menu_settings),
@@ -470,6 +478,13 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let quit_w = wide(ui.menu_quit);
     let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, PCWSTR(quit_w.as_ptr()));
+
+    // Bold "default" styling for the first item (double-click semantics).
+    let _ = windows::Win32::UI::WindowsAndMessaging::SetMenuDefaultItem(
+        menu,
+        CMD_OPEN_MAIN as u32,
+        0, // by command id, not position
+    );
 
     let mut pt = Default::default();
     let _ = GetCursorPos(&mut pt);
@@ -490,6 +505,7 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     let _ = DestroyMenu(menu);
 
     match cmd.0 as usize {
+        CMD_OPEN_MAIN => ui::open(ui::TAB_HISTORY),
         CMD_SHOW_HISTORY => ui::open(ui::TAB_HISTORY),
         CMD_SHOW_SETTINGS => ui::open(ui::TAB_SETTINGS),
         CMD_SHOW_MODELS => ui::open(ui::TAB_MODELS),

@@ -46,6 +46,7 @@ const ID_S_SECONDARY: i32 = 202;
 const ID_S_COMBO: i32 = 203;
 const ID_S_LANGUAGE: i32 = 204;
 const ID_S_IDLE: i32 = 205;
+const ID_S_UILANG: i32 = 206;
 const ID_S_SKIP: i32 = 210;
 const ID_S_CLEANUP: i32 = 211;
 const ID_S_HUD: i32 = 212;
@@ -238,8 +239,11 @@ unsafe fn build_controls(hwnd: HWND, font: HFONT) {
     make(hwnd, font, btn, ui.btn_clear_all, WS_TABSTOP.0 | BS_PUSHBUTTON as u32, 292, PAGE_TOP + 434, 130, 28, ID_H_CLEAR);
 
     // --- Settings page -----------------------------------------------------
-    let labels = [ui.lbl_hotkey, ui.lbl_secondary, ui.lbl_combo, ui.lbl_language, ui.lbl_idle];
-    let combo_ids = [ID_S_HOTKEY, ID_S_SECONDARY, ID_S_COMBO, ID_S_LANGUAGE, ID_S_IDLE];
+    let labels = [
+        ui.lbl_hotkey, ui.lbl_secondary, ui.lbl_combo, ui.lbl_language, ui.lbl_idle,
+        ui.lbl_ui_language,
+    ];
+    let combo_ids = [ID_S_HOTKEY, ID_S_SECONDARY, ID_S_COMBO, ID_S_LANGUAGE, ID_S_IDLE, ID_S_UILANG];
     for (i, (label, id)) in labels.iter().zip(combo_ids).enumerate() {
         let y = PAGE_TOP + 20 + i as i32 * 36;
         make(hwnd, font, stc, label, 0, 16, y + 4, 200, 20, ID_S_LABELS + i as i32);
@@ -253,10 +257,10 @@ unsafe fn build_controls(hwnd: HWND, font: HFONT) {
         (ui.chk_autostart, ID_S_AUTOSTART),
     ];
     for (i, (label, id)) in checks.iter().enumerate() {
-        let y = PAGE_TOP + 210 + i as i32 * 30;
+        let y = PAGE_TOP + 246 + i as i32 * 30;
         make(hwnd, font, btn, label, WS_TABSTOP.0 | BS_AUTOCHECKBOX as u32, 16, y, 400, 24, *id);
     }
-    make(hwnd, font, btn, ui.btn_save, WS_TABSTOP.0 | BS_PUSHBUTTON as u32, 16, PAGE_TOP + 372, 140, 30, ID_S_SAVE);
+    make(hwnd, font, btn, ui.btn_save, WS_TABSTOP.0 | BS_PUSHBUTTON as u32, 16, PAGE_TOP + 404, 140, 30, ID_S_SAVE);
 
     // Populate fixed combo contents.
     let add = |id: i32, s: &str| {
@@ -279,6 +283,9 @@ unsafe fn build_controls(hwnd: HWND, font: HFONT) {
     }
     for label in [ui.idle_1m, ui.idle_10m, ui.idle_30m, ui.idle_1h, ui.idle_never] {
         add(ID_S_IDLE, label);
+    }
+    for label in [ui.ui_lang_system, "English", "Русский", "中文"] {
+        add(ID_S_UILANG, label);
     }
 
     // --- Models page -------------------------------------------------------
@@ -341,9 +348,10 @@ unsafe fn show_page(hwnd: HWND, tab: usize) {
         (
             TAB_SETTINGS,
             &[
-                ID_S_HOTKEY, ID_S_SECONDARY, ID_S_COMBO, ID_S_LANGUAGE, ID_S_IDLE, ID_S_SKIP,
-                ID_S_CLEANUP, ID_S_HUD, ID_S_BEEPS, ID_S_AUTOSTART, ID_S_SAVE, ID_S_LABELS,
-                ID_S_LABELS + 1, ID_S_LABELS + 2, ID_S_LABELS + 3, ID_S_LABELS + 4,
+                ID_S_HOTKEY, ID_S_SECONDARY, ID_S_COMBO, ID_S_LANGUAGE, ID_S_IDLE, ID_S_UILANG,
+                ID_S_SKIP, ID_S_CLEANUP, ID_S_HUD, ID_S_BEEPS, ID_S_AUTOSTART, ID_S_SAVE,
+                ID_S_LABELS, ID_S_LABELS + 1, ID_S_LABELS + 2, ID_S_LABELS + 3, ID_S_LABELS + 4,
+                ID_S_LABELS + 5,
             ],
         ),
         (TAB_MODELS, &[ID_M_LIST, ID_M_DOWNLOAD, ID_M_CANCEL, ID_M_USE, ID_M_DELFILE]),
@@ -454,6 +462,15 @@ unsafe fn load_settings_into_controls(hwnd: HWND) {
         },
     );
     sel(ID_S_IDLE, IDLE_SECS.iter().position(|s| *s == cfg.idle_evict_secs).unwrap_or(1));
+    sel(
+        ID_S_UILANG,
+        match cfg.ui_language.trim() {
+            "en" => 1,
+            "ru" => 2,
+            "zh" => 3,
+            _ => 0,
+        },
+    );
     let check = |id: i32, on: bool| {
         SendMessageW(GetDlgItem(hwnd, id).unwrap_or_default(), BM_SETCHECK, WPARAM(on as usize), LPARAM(0));
     };
@@ -479,6 +496,13 @@ unsafe fn save_settings(hwnd: HWND) {
         i => languages::SUPPORTED.get(i - 2).unwrap_or(&"system").to_string(),
     };
     cfg.idle_evict_secs = IDLE_SECS[cur(ID_S_IDLE).min(IDLE_SECS.len() - 1)];
+    cfg.ui_language = match cur(ID_S_UILANG) {
+        1 => "en",
+        2 => "ru",
+        3 => "zh",
+        _ => "system",
+    }
+    .to_string();
     cfg.skip_empty = checked(ID_S_SKIP);
     cfg.cleanup_enabled = checked(ID_S_CLEANUP);
     cfg.hud = checked(ID_S_HUD);

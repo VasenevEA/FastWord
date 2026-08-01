@@ -106,6 +106,8 @@ pub struct UiStrings {
     pub btn_use: &'static str,
     pub btn_delete_file: &'static str,
     pub model_missing_prompt: &'static str,
+    pub lbl_ui_language: &'static str,
+    pub ui_lang_system: &'static str,
 }
 
 static EN: UiStrings = UiStrings {
@@ -166,6 +168,8 @@ static EN: UiStrings = UiStrings {
     btn_use: "Use",
     btn_delete_file: "Delete file",
     model_missing_prompt: "No speech model is installed yet. Open the Models tab to download one?",
+    lbl_ui_language: "UI language",
+    ui_lang_system: "System",
 };
 
 static RU: UiStrings = UiStrings {
@@ -226,6 +230,8 @@ static RU: UiStrings = UiStrings {
     btn_use: "Использовать",
     btn_delete_file: "Удалить файл",
     model_missing_prompt: "Модель распознавания ещё не установлена. Открыть раздел «Модели», чтобы скачать её?",
+    lbl_ui_language: "Язык интерфейса",
+    ui_lang_system: "Системный",
 };
 
 static ZH: UiStrings = UiStrings {
@@ -286,13 +292,34 @@ static ZH: UiStrings = UiStrings {
     btn_use: "使用",
     btn_delete_file: "删除文件",
     model_missing_prompt: "尚未安装语音模型。打开“模型”选项卡进行下载吗？",
+    lbl_ui_language: "界面语言",
+    ui_lang_system: "跟随系统",
 };
 
+/// UI language override from config: 0 = follow system, 1/2/3 = en/ru/zh.
+static UI_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Apply the config `ui_language` value ("system"/"en"/"ru"/"zh").
+pub fn set_ui_language(code: &str) {
+    let v = match code.trim().to_lowercase().as_str() {
+        "en" => 1,
+        "ru" => 2,
+        "zh" => 3,
+        _ => 0,
+    };
+    UI_OVERRIDE.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub fn ui() -> &'static UiStrings {
-    match system_language() {
-        Some("ru") => &RU,
-        Some("zh") => &ZH,
-        _ => &EN,
+    match UI_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => &EN,
+        2 => &RU,
+        3 => &ZH,
+        _ => match system_language() {
+            Some("ru") => &RU,
+            Some("zh") => &ZH,
+            _ => &EN,
+        },
     }
 }
 

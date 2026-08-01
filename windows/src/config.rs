@@ -32,6 +32,8 @@ pub struct Config {
     /// Floating on-screen indicator while recording/transcribing (like the
     /// macOS HUD).
     pub hud: bool,
+    /// UI language: "system" (default), "en", "ru" or "zh".
+    pub ui_language: String,
 }
 
 impl Default for Config {
@@ -47,6 +49,7 @@ impl Default for Config {
             cleanup_enabled: true,
             beeps: false,
             hud: true,
+            ui_language: "system".into(),
         }
     }
 }
@@ -93,6 +96,9 @@ hud = true
 # Beep on record start/stop and on errors (off by default - the HUD already
 # gives feedback).
 beeps = false
+
+# UI language: "system", "en", "ru" or "zh".
+ui_language = "system"
 "#;
 
 pub fn config_dir() -> PathBuf {
@@ -165,6 +171,9 @@ hud = {hud}
 # Beep on record start/stop and on errors (off by default - the HUD already
 # gives feedback).
 beeps = {beeps}
+
+# UI language: "system", "en", "ru" or "zh".
+ui_language = "{ui_language}"
 "#,
         hotkey = esc(&cfg.hotkey),
         hotkey_secondary = esc(&cfg.hotkey_secondary),
@@ -176,6 +185,7 @@ beeps = {beeps}
         cleanup_enabled = cfg.cleanup_enabled,
         hud = cfg.hud,
         beeps = cfg.beeps,
+        ui_language = esc(&cfg.ui_language),
     )
 }
 
@@ -251,6 +261,7 @@ mod tests {
             cleanup_enabled: false,
             beeps: true,
             hud: false,
+            ui_language: "en".into(),
         };
         let back = parse(&render(&cfg)).unwrap();
         assert_eq!(back.hotkey, cfg.hotkey);
@@ -263,6 +274,7 @@ mod tests {
         assert_eq!(back.cleanup_enabled, cfg.cleanup_enabled);
         assert_eq!(back.beeps, cfg.beeps);
         assert_eq!(back.hud, cfg.hud);
+        assert_eq!(back.ui_language, cfg.ui_language);
     }
 
     #[test]
