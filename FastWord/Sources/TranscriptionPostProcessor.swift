@@ -42,9 +42,16 @@ enum TranscriptionPostProcessor {
         if options.stripBracketedNoise {
             text = stripBracketedNoise(text)
         }
+        let nonemptyBeforeHallucinationPass =
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if options.stripKnownHallucinations {
             text = stripKnownHallucinations(text)
         }
+        // If the known-hallucination pass emptied the text, the input *was*
+        // purely a known artefact ("Продолжение следует...", "Thanks for
+        // watching!") — drop it for real instead of resurrecting it below.
+        let purelyHallucination = nonemptyBeforeHallucinationPass
+            && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if options.collapseRepeats {
             text = collapseRepeats(text)
         }
@@ -53,10 +60,11 @@ enum TranscriptionPostProcessor {
         }
         text = stripLeadingTrailingNoise(text)
 
-        // Guardrail: if cleaning emptied a non-trivial input, the original is
-        // probably more useful than nothing — don't silently swallow it.
+        // Guardrail: if the *other* passes (bracket strip, repeat collapse)
+        // emptied a non-trivial input, the original is probably more useful
+        // than nothing — don't silently swallow it.
         let trimmedOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty && trimmedOriginal.count > 12 {
+        if text.isEmpty && !purelyHallucination && trimmedOriginal.count > 12 {
             return trimmedOriginal
         }
         return text
