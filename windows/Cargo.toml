@@ -1,6 +1,6 @@
 [package]
 name = "fastword-win"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "FastWord for Windows — local, private, push-to-talk dictation"
 license = "MIT"

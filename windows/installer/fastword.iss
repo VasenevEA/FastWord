@@ -7,7 +7,7 @@
 ; (CI builds it automatically; Inno Setup 6 is preinstalled on GitHub
 ; windows runners.)
 
-#define AppVersion "0.6.0"
+#define AppVersion "0.7.0"
 
 [Setup]
 AppId={{1A8161D4-A910-4857-AD86-254EB4ED4690}
