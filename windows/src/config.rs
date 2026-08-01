@@ -29,6 +29,9 @@ pub struct Config {
     pub cleanup_enabled: bool,
     /// Audible cues on record start/stop and on errors.
     pub beeps: bool,
+    /// Floating on-screen indicator while recording/transcribing (like the
+    /// macOS HUD).
+    pub hud: bool,
 }
 
 impl Default for Config {
@@ -42,7 +45,8 @@ impl Default for Config {
             idle_evict_secs: 600,
             skip_empty: true,
             cleanup_enabled: true,
-            beeps: true,
+            beeps: false,
+            hud: true,
         }
     }
 }
@@ -83,8 +87,12 @@ skip_empty = true
 # Clean common Whisper artefacts (YouTube-credit phrases, word repeats).
 cleanup_enabled = true
 
-# Beep on record start/stop and on errors.
-beeps = true
+# Floating on-screen indicator while recording/transcribing (macOS-style HUD).
+hud = true
+
+# Beep on record start/stop and on errors (off by default - the HUD already
+# gives feedback).
+beeps = false
 "#;
 
 pub fn config_dir() -> PathBuf {
@@ -149,6 +157,14 @@ mod tests {
         assert_eq!(cfg.skip_empty, def.skip_empty);
         assert_eq!(cfg.cleanup_enabled, def.cleanup_enabled);
         assert_eq!(cfg.beeps, def.beeps);
+        assert_eq!(cfg.hud, def.hud);
+    }
+
+    #[test]
+    fn hud_replaces_beeps_by_default() {
+        let cfg = parse("").unwrap();
+        assert!(cfg.hud);
+        assert!(!cfg.beeps);
     }
 
     #[test]

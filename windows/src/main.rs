@@ -15,6 +15,7 @@ mod audio;
 mod config;
 mod gpu_hint;
 mod history;
+mod hud;
 mod hotkey;
 mod insert;
 mod languages;
@@ -95,7 +96,7 @@ fn send_event(ev: AppEvent) {
     }
 }
 
-fn wide(s: &str) -> Vec<u16> {
+pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
@@ -204,6 +205,7 @@ fn run_app() -> Result<()> {
         skip_empty: cfg.skip_empty,
         cleanup_enabled: cfg.cleanup_enabled,
         beeps: cfg.beeps,
+        hud: cfg.hud,
         ptt_vks: std::iter::once(primary).chain(secondary).collect(),
     };
     let controller =
@@ -217,6 +219,11 @@ fn run_app() -> Result<()> {
     };
 
     let hwnd = create_hidden_window()?;
+    if cfg.hud {
+        if let Err(e) = hud::create() {
+            logging::log(&format!("HUD unavailable: {e:#}"));
+        }
+    }
     let tip = format!("FastWord — hold {} to dictate", cfg.hotkey);
     let _ = TRAY_TIP.set(tip.clone());
     let taskbar_msg = unsafe {
@@ -493,6 +500,7 @@ struct ControllerConfig {
     skip_empty: bool,
     cleanup_enabled: bool,
     beeps: bool,
+    hud: bool,
     /// The configured PTT virtual-key codes, for the lost-key-up failsafe.
     ptt_vks: Vec<u32>,
 }
@@ -583,6 +591,9 @@ fn controller_loop(
                 Ok(()) => {
                     recording = true;
                     logging::log("recording started");
+                    if cfg.hud {
+                        hud::set_state(hud::HudState::Recording);
+                    }
                     beep(cfg.beeps, MB_OK);
                 }
                 Err(e) => {
@@ -593,6 +604,9 @@ fn controller_loop(
             AppEvent::CancelKey if recording => {
                 recorder.cancel();
                 recording = false;
+                if cfg.hud {
+                    hud::set_state(hud::HudState::Hidden);
+                }
                 logging::log("recording cancelled (Escape)");
             }
             AppEvent::PttUp if recording => {
@@ -611,7 +625,13 @@ fn controller_loop(
                 }
                 if pcm.len() < 1600 {
                     // Under 0.1 s — an accidental tap.
+                    if cfg.hud {
+                        hud::set_state(hud::HudState::Hidden);
+                    }
                     continue;
+                }
+                if cfg.hud {
+                    hud::set_state(hud::HudState::Transcribing);
                 }
                 let t = std::time::Instant::now();
                 let result = client.transcribe(
@@ -629,6 +649,11 @@ fn controller_loop(
                         AppEvent::CancelKey => cancelled = true,
                         other => pending.push_back(other),
                     }
+                }
+                // Whisper is done — drop the HUD before the paste so it
+                // never overlaps the target window's own UI.
+                if cfg.hud {
+                    hud::set_state(hud::HudState::Hidden);
                 }
                 match result {
                     Ok(raw) => {

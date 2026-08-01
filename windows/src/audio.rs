@@ -5,12 +5,34 @@
 // config, downmixes to mono on the fly and resamples to 16 kHz when the
 // recording is stopped. The DSP helpers are pure functions with tests.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub const TARGET_SAMPLE_RATE: u32 = 16_000;
+
+/// Live input level (0..1, f32 bits) for the HUD equalizer, updated from
+/// the capture callback. Same normalization as the macOS Recorder: speech
+/// RMS is typically 0.01–0.08, so sqrt + heavy gain keeps quiet talking
+/// visible; a decaying max smooths the bar motion.
+static LEVEL: AtomicU32 = AtomicU32::new(0);
+
+pub fn current_level() -> f32 {
+    f32::from_bits(LEVEL.load(Ordering::Relaxed))
+}
+
+fn update_level(chunk: &[f32]) {
+    if chunk.is_empty() {
+        return;
+    }
+    let sum_sq: f32 = chunk.iter().map(|s| s * s).sum();
+    let rms = (sum_sq / chunk.len() as f32).sqrt();
+    let normalized = (rms.sqrt() * 3.5).min(1.0);
+    let smoothed = f32::from_bits(LEVEL.load(Ordering::Relaxed)) * 0.92;
+    LEVEL.store(normalized.max(smoothed).to_bits(), Ordering::Relaxed);
+}
 
 /// Average interleaved multi-channel frames down to mono.
 pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
@@ -72,6 +94,7 @@ impl Recorder {
     pub fn start(&mut self) -> Result<()> {
         self.stop_stream();
         self.buffer.lock().unwrap().clear();
+        LEVEL.store(0, Ordering::Relaxed);
 
         let host = cpal::default_host();
         let device = host
@@ -90,7 +113,9 @@ impl Recorder {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _| {
-                    buffer.lock().unwrap().extend(downmix(data, channels));
+                    let mono = downmix(data, channels);
+                    update_level(&mono);
+                    buffer.lock().unwrap().extend(mono);
                 },
                 err_fn,
                 None,
@@ -100,7 +125,9 @@ impl Recorder {
                 move |data: &[i16], _| {
                     let floats: Vec<f32> =
                         data.iter().map(|&s| s as f32 / 32768.0).collect();
-                    buffer.lock().unwrap().extend(downmix(&floats, channels));
+                    let mono = downmix(&floats, channels);
+                    update_level(&mono);
+                    buffer.lock().unwrap().extend(mono);
                 },
                 err_fn,
                 None,
@@ -112,7 +139,9 @@ impl Recorder {
                         .iter()
                         .map(|&s| (s as f32 - 32768.0) / 32768.0)
                         .collect();
-                    buffer.lock().unwrap().extend(downmix(&floats, channels));
+                    let mono = downmix(&floats, channels);
+                    update_level(&mono);
+                    buffer.lock().unwrap().extend(mono);
                 },
                 err_fn,
                 None,
@@ -139,6 +168,7 @@ impl Recorder {
 
     fn stop_stream(&mut self) {
         self.stream = None; // dropping the stream stops capture
+        LEVEL.store(0, Ordering::Relaxed);
     }
 }
 
