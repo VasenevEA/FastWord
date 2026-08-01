@@ -105,6 +105,7 @@ pub struct UiStrings {
     pub btn_cancel: &'static str,
     pub btn_use: &'static str,
     pub btn_delete_file: &'static str,
+    pub model_missing_prompt: &'static str,
 }
 
 static EN: UiStrings = UiStrings {
@@ -164,6 +165,7 @@ static EN: UiStrings = UiStrings {
     btn_cancel: "Cancel",
     btn_use: "Use",
     btn_delete_file: "Delete file",
+    model_missing_prompt: "No speech model is installed yet. Open the Models tab to download one?",
 };
 
 static RU: UiStrings = UiStrings {
@@ -223,6 +225,7 @@ static RU: UiStrings = UiStrings {
     btn_cancel: "Отмена",
     btn_use: "Использовать",
     btn_delete_file: "Удалить файл",
+    model_missing_prompt: "Модель распознавания ещё не установлена. Открыть раздел «Модели», чтобы скачать её?",
 };
 
 static ZH: UiStrings = UiStrings {
@@ -282,6 +285,7 @@ static ZH: UiStrings = UiStrings {
     btn_cancel: "取消",
     btn_use: "使用",
     btn_delete_file: "删除文件",
+    model_missing_prompt: "尚未安装语音模型。打开“模型”选项卡进行下载吗？",
 };
 
 pub fn ui() -> &'static UiStrings {

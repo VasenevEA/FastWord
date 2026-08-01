@@ -167,13 +167,12 @@ fn run_app() -> Result<()> {
         }
     }
 
+    // A missing model is not fatal — a fresh install has none. Start
+    // without the sidecar and point the user at the Models tab instead.
     let model_path = cfg.resolved_model_path();
-    if !model_path.exists() {
-        return Err(anyhow!(
-            "Whisper model not found at:\n{}\n\nRun windows\\scripts\\get-model.ps1 to download it,\nor set model_path in {}",
-            model_path.display(),
-            config::config_path().display()
-        ));
+    let model_missing = !model_path.exists();
+    if model_missing {
+        logging::log(&format!("model not found at {} — starting without sidecar", model_path.display()));
     }
 
     let sidecar_exe = sidecar::find_sidecar_exe().ok_or_else(|| {
@@ -190,7 +189,7 @@ fn run_app() -> Result<()> {
         model: model_path.clone(),
         idle_evict_secs: cfg.idle_evict_secs,
     };
-    let client = spawner.spawn()?;
+    let client = if model_missing { None } else { Some(spawner.spawn()?) };
 
     let (mut language, mut initial_prompt) = languages::resolve(&cfg.language);
     // GigaAM selected in the Models tab: route to the sherpa-onnx engine.
@@ -250,6 +249,24 @@ fn run_app() -> Result<()> {
     let _ = TASKBAR_CREATED_MSG.set(taskbar_msg);
     add_tray_icon(hwnd, &tip)?;
     logging::log("ready — tray icon installed");
+
+    if model_missing {
+        let ui_str = languages::ui();
+        let text = wide(ui_str.model_missing_prompt);
+        let caption = wide("FastWord");
+        let clicked = unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(text.as_ptr()),
+                PCWSTR(caption.as_ptr()),
+                windows::Win32::UI::WindowsAndMessaging::MB_YESNO
+                    | windows::Win32::UI::WindowsAndMessaging::MB_ICONQUESTION,
+            )
+        };
+        if clicked == windows::Win32::UI::WindowsAndMessaging::IDYES {
+            ui::open(ui::TAB_MODELS);
+        }
+    }
 
     run_message_loop();
 
@@ -567,7 +584,7 @@ fn beep(enabled: bool, style: windows::Win32::UI::WindowsAndMessaging::MESSAGEBO
 
 fn controller_loop(
     rx: Receiver<AppEvent>,
-    mut client: sidecar::SidecarClient,
+    mut client: Option<sidecar::SidecarClient>,
     spawner: sidecar::SidecarSpawner,
     cfg: ControllerConfig,
 ) {
@@ -582,21 +599,23 @@ fn controller_loop(
         }
     };
 
-    // Ask the sidecar what it was built with; if it's CPU-only next to an
-    // NVIDIA GPU, offer the GPU setup path (once).
-    match client.info() {
-        Ok(line) => {
-            logging::log(&line);
-            gpu_hint::maybe_offer(sidecar::parse_backend(&line));
+    if let Some(client) = client.as_mut() {
+        // Ask the sidecar what it was built with; if it's CPU-only next to
+        // an NVIDIA GPU, offer the GPU setup path (once).
+        match client.info() {
+            Ok(line) => {
+                logging::log(&line);
+                gpu_hint::maybe_offer(sidecar::parse_backend(&line));
+            }
+            Err(e) => logging::log(&format!("sidecar info failed: {e:#}")),
         }
-        Err(e) => logging::log(&format!("sidecar info failed: {e:#}")),
-    }
 
-    // Load the model up front so the first dictation isn't slow.
-    let t0 = std::time::Instant::now();
-    match client.warmup() {
-        Ok(_) => logging::log(&format!("model warmed up in {:.1}s", t0.elapsed().as_secs_f32())),
-        Err(e) => logging::log(&format!("warmup failed: {e:#}")),
+        // Load the model up front so the first dictation isn't slow.
+        let t0 = std::time::Instant::now();
+        match client.warmup() {
+            Ok(_) => logging::log(&format!("model warmed up in {:.1}s", t0.elapsed().as_secs_f32())),
+            Err(e) => logging::log(&format!("warmup failed: {e:#}")),
+        }
     }
 
     // Events that arrived while a transcription was in flight are re-queued
@@ -676,11 +695,20 @@ fn controller_loop(
                     }
                     continue;
                 }
+                let Some(active_client) = client.as_mut() else {
+                    // No model installed yet — nothing to transcribe with.
+                    logging::log("no model installed — dictation skipped (see the Models tab)");
+                    if cfg.hud {
+                        hud::set_state(hud::HudState::Hidden);
+                    }
+                    beep(cfg.beeps, MB_ICONHAND);
+                    continue;
+                };
                 if cfg.hud {
                     hud::set_state(hud::HudState::Transcribing);
                 }
                 let t = std::time::Instant::now();
-                let result = client.transcribe(
+                let result = active_client.transcribe(
                     &pcm,
                     &cfg.language,
                     cfg.initial_prompt.as_deref(),
@@ -738,11 +766,11 @@ fn controller_loop(
                         beep(cfg.beeps, MB_ICONHAND);
                         // If the sidecar process died, respawn it so the next
                         // dictation works without restarting the app.
-                        if !client.is_alive() {
+                        if !active_client.is_alive() {
                             logging::log("sidecar is dead — respawning");
                             match spawner.spawn() {
                                 Ok(new_client) => {
-                                    client = new_client;
+                                    client = Some(new_client);
                                     logging::log("sidecar respawned");
                                 }
                                 Err(e) => {

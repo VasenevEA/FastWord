@@ -4,7 +4,7 @@ Local, private, push-to-talk dictation for macOS — powered by `whisper.cpp` ru
 
 Hold a hotkey, speak, release — your words appear in any focused text field. Nothing leaves your Mac.
 
-> **Windows:** an experimental native Windows port lives in [`windows/`](windows/README.md) — same sidecar, same protocol, Rust tray app instead of the Swift one.
+> **Windows:** a native Windows port lives in [`windows/`](windows/README.md) — same sidecar and protocol, Rust tray app with an installer, GPU (CUDA) support and the GigaAM Russian engine included. CI builds the installer on every push.
 
 ![FastWord demo — dictating in Russian, English, and Mandarin](docs/demo.gif)
 
