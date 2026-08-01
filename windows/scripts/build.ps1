@@ -49,6 +49,16 @@ LIBCLANG_PATH to that folder.
 Write-Host "LIBCLANG_PATH = $env:LIBCLANG_PATH"
 
 # --- build -----------------------------------------------------------------
+# The cmake crate strips /O flags from its computed MSVC flags AND overrides
+# CMAKE_C(XX)_FLAGS_RELEASE, clobbering CMake's default "/O2 /Ob2 /DNDEBUG" —
+# whisper.cpp then builds with no optimization at all and transcribes ~15x
+# slower. whisper-rs-sys passes CMAKE_* env vars through as -D defines, and
+# the cmake crate skips its override for variables that are already defined,
+# so setting them here restores an optimized build. (SIMD/AVX2 is detected
+# and applied per-target by ggml's own cmake via GGML_NATIVE.)
+$env:CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
+$env:CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
+
 Write-Host "`n=== Building sidecar (whisper.cpp — first build takes a while) ==="
 Push-Location (Join-Path $repo "sidecar-rust")
 try { cargo build --release } finally { Pop-Location }

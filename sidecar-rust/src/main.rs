@@ -152,13 +152,9 @@ impl ModelHolder {
 
         state.full(params, audio).context("whisper.full")?;
 
-        let n_segments = state.full_n_segments().context("full_n_segments")?;
         let mut out = String::new();
-        for i in 0..n_segments {
-            let seg = state
-                .full_get_segment_text(i)
-                .context("get segment text")?;
-            out.push_str(&seg);
+        for segment in state.as_iter() {
+            out.push_str(&segment.to_str_lossy().context("get segment text")?);
         }
         Ok(out.trim().to_string())
     }
@@ -172,9 +168,17 @@ impl ModelHolder {
 }
 
 fn num_cpus_or_default() -> i32 {
-    thread::available_parallelism()
-        .map(|n| n.get() as i32)
-        .unwrap_or(4)
+    // FASTWORD_THREADS overrides; otherwise physical cores. On SMT machines
+    // (e.g. 18C/36T Xeons) logical-core counts oversubscribe the memory
+    // bus and are measurably slower for whisper.
+    if let Some(n) = std::env::var("FASTWORD_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .filter(|&n| n > 0)
+    {
+        return n;
+    }
+    num_cpus::get_physical().max(1) as i32
 }
 
 fn decode_pcm(b64: &str) -> Result<Vec<f32>> {

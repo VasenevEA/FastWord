@@ -60,11 +60,22 @@ RAM and the next dictation warms up again.
 | `cleanup_enabled` | `true` | strip Whisper artefacts (credits, repeats) |
 | `beeps` | `true` | audible record start/error cues |
 
-Slow machine? Download a smaller model and point `model_path` at it:
+### Performance
+
+Inference is CPU-only for now. Ballpark on an 18-core Haswell Xeon:
+~2x realtime with the default `large-v3-turbo-q5_0` (a 5 s clip transcribes
+in ~10 s). On a slow machine download a smaller model and point
+`model_path` at it — `small` is roughly 10x faster than `large-v3-turbo`
+at noticeably lower accuracy:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File windows\scripts\get-model.ps1 -Model small
 ```
+
+If transcription is implausibly slow (minutes instead of seconds), you are
+likely running an unoptimized whisper build — make sure `opt-level` in
+`sidecar-rust/Cargo.toml`'s release profile is `3` (see the comment there;
+`"z"` silently produces an MSVC build with no `/O` flag at all).
 
 ## Where things live
 
@@ -112,7 +123,11 @@ cd sidecar-rust ; cargo test   # sidecar: protocol + PCM decoding
 
 ## Not ported yet
 
-- GPU acceleration (whisper.cpp Vulkan/CUDA backends are a build flag away)
+- GPU acceleration. whisper.cpp's CUDA backend would be a big win on this
+  machine class (an RTX 3060 runs large-v3-turbo ~20x realtime) but
+  building it needs the CUDA toolkit installed; the Vulkan backend needs
+  the Vulkan SDK. Both are `whisper-rs` feature flags away once an SDK is
+  present.
 - GigaAM-v3 Russian engine (sherpa-onnx is cfg-gated to macOS)
 - Settings / history / model-management UI, HUD, live preview
 - Localized UI strings
