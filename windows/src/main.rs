@@ -330,6 +330,19 @@ fn create_hidden_window() -> Result<HWND> {
     }
 }
 
+/// The embedded app icon (resource id 1, set by build.rs / winresource) —
+/// the same microphone icon the macOS app uses. Falls back to the generic
+/// application icon if the resource is missing.
+fn app_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
+    unsafe {
+        GetModuleHandleW(None)
+            .ok()
+            .and_then(|m| LoadIconW(m, PCWSTR(1 as *const u16)).ok())
+            .or_else(|| LoadIconW(None, IDI_APPLICATION).ok())
+            .unwrap_or_default()
+    }
+}
+
 fn tray_icon_data(hwnd: HWND, tip: &str) -> NOTIFYICONDATAW {
     let mut nid = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -339,7 +352,7 @@ fn tray_icon_data(hwnd: HWND, tip: &str) -> NOTIFYICONDATAW {
         uCallbackMessage: WM_TRAYICON,
         ..Default::default()
     };
-    nid.hIcon = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap_or_default() };
+    nid.hIcon = app_icon();
     let tip_w: Vec<u16> = tip.encode_utf16().take(127).collect();
     nid.szTip[..tip_w.len()].copy_from_slice(&tip_w);
     nid
