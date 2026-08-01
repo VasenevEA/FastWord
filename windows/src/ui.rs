@@ -360,6 +360,8 @@ unsafe fn show_page(hwnd: HWND, tab: usize) {
 // History page
 
 unsafe fn refresh_history(hwnd: HWND) {
+    use windows::Win32::UI::Controls::{LVIS_SELECTED, LVM_ENSUREVISIBLE, LVM_GETTOPINDEX, LVM_SETITEMSTATE};
+
     let filter = get_text(GetDlgItem(hwnd, ID_H_SEARCH).unwrap_or_default()).to_lowercase();
     let rows = match history::HistoryStore::open_default().and_then(|s| s.load_all()) {
         Ok(rows) => rows,
@@ -369,6 +371,11 @@ unsafe fn refresh_history(hwnd: HWND) {
         }
     };
     let lv = GetDlgItem(hwnd, ID_H_LIST).unwrap_or_default();
+    // Rebuilding the list resets the scroll and selection; remember both so
+    // deleting entries one by one doesn't throw the user back to the top.
+    let old_top = SendMessageW(lv, LVM_GETTOPINDEX, WPARAM(0), LPARAM(0)).0.max(0) as usize;
+    let old_sel = lv_selected(lv);
+
     SendMessageW(lv, LVM_DELETEALLITEMS, WPARAM(0), LPARAM(0));
     let mut kept = Vec::new();
     for (id, text, ts) in rows {
@@ -385,6 +392,20 @@ unsafe fn refresh_history(hwnd: HWND) {
         lv_set_row(lv, kept.len(), &[&when, &text.replace('\n', " ")]);
         kept.push((id, text, when));
     }
+
+    if !kept.is_empty() {
+        let last = kept.len() - 1;
+        if let Some(sel) = old_sel {
+            // After a delete the same visual position now holds the next row.
+            let item = LVITEMW { state: LVIS_SELECTED, stateMask: LVIS_SELECTED, ..Default::default() };
+            SendMessageW(lv, LVM_SETITEMSTATE, WPARAM(sel.min(last)), LPARAM(&item as *const _ as isize));
+        }
+        // Scroll to the bottom first, then minimally back up — that puts the
+        // remembered row at the top of the view again.
+        SendMessageW(lv, LVM_ENSUREVISIBLE, WPARAM(last), LPARAM(0));
+        SendMessageW(lv, LVM_ENSUREVISIBLE, WPARAM(old_top.min(last)), LPARAM(0));
+    }
+
     if let Some(state) = STATE.lock().unwrap().as_mut() {
         state.history_rows = kept;
     }
