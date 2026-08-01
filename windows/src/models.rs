@@ -51,7 +51,7 @@ pub const CATALOG: [WhisperModel; 9] = [
 // GigaAM v3 (Russian) — a directory engine, not a single ggml file. Same
 // source and layout as macOS GigaAMInstaller.swift.
 
-pub const GIGAAM_DISPLAY: &str = "GigaAM v3 (Sber, Russian)";
+pub const GIGAAM_DISPLAY: &str = "GigaAM v3";
 pub const GIGAAM_SIZE_BYTES: u64 = 225_000_000; // model.int8.onnx ~215 MB + tokens.txt
 const GIGAAM_REPO: &str =
     "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/resolve/main";
