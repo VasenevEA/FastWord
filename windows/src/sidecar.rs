@@ -79,6 +79,24 @@ impl Request {
     }
 }
 
+/// Newest installed CUDA toolkit's DLL directory (`bin\x64`), if any.
+fn newest_cuda_bin() -> Option<PathBuf> {
+    let root = PathBuf::from(std::env::var_os("ProgramFiles")?)
+        .join("NVIDIA GPU Computing Toolkit")
+        .join("CUDA");
+    let mut versions: Vec<PathBuf> = std::fs::read_dir(&root)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.join("bin").join("x64").join("cublas64_13.dll").exists()
+            || p.join("bin").join("cublas64_12.dll").exists())
+        .collect();
+    versions.sort();
+    let newest = versions.pop()?;
+    let x64 = newest.join("bin").join("x64");
+    Some(if x64.exists() { x64 } else { newest.join("bin") })
+}
+
 /// Extract the backend name from an `info` response line. Unknown or
 /// malformed lines count as "cpu" (older sidecars had no `info` at all).
 pub fn parse_backend(info: &str) -> &str {
@@ -144,9 +162,19 @@ impl SidecarClient {
         #[allow(unused_imports)]
         use std::os::windows::process::CommandExt;
 
+        // A CUDA-built sidecar needs cublas from CUDA's bin\x64 on PATH.
+        // The installer adds it to the machine PATH, but processes started
+        // before the install (or odd shells) may carry a stale one — append
+        // the newest toolkit dir ourselves when present.
+        let mut path = std::env::var("PATH").unwrap_or_default();
+        if let Some(cuda_bin) = newest_cuda_bin() {
+            path = format!("{};{}", path, cuda_bin.display());
+        }
+
         let mut child = Command::new(sidecar_exe)
             .env("FASTWORD_MODEL", model_path)
             .env("FASTWORD_IDLE_EVICT", idle_evict_secs.to_string())
+            .env("PATH", path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
