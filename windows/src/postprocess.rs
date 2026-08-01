@@ -78,9 +78,16 @@ pub fn clean_with(input: &str, options: Options) -> String {
     if options.strip_bracketed_noise {
         text = strip_bracketed_noise(&text);
     }
+    let nonempty_before_hallucination_pass = !text.trim().is_empty();
     if options.strip_known_hallucinations {
         text = strip_known_hallucinations(&text);
     }
+    // If the known-hallucination pass emptied the text, the input *was*
+    // purely a known artefact ("Продолжение следует...", "Thanks for
+    // watching!") — drop it for real instead of resurrecting it below.
+    // (The Swift original's guardrail resurrects these; that's a bug worth
+    // porting back.)
+    let purely_hallucination = nonempty_before_hallucination_pass && text.trim().is_empty();
     if options.collapse_repeats {
         text = collapse_repeats(&text);
     }
@@ -89,10 +96,11 @@ pub fn clean_with(input: &str, options: Options) -> String {
     }
     text = strip_leading_trailing_noise(&text);
 
-    // Guardrail: if cleaning emptied a non-trivial input, the original is
-    // probably more useful than nothing — don't silently swallow it.
+    // Guardrail: if the *other* passes (bracket strip, repeat collapse)
+    // emptied a non-trivial input, the original is probably more useful
+    // than nothing — don't silently swallow it.
     let trimmed_original = original.trim();
-    if text.is_empty() && trimmed_original.chars().count() > 12 {
+    if text.is_empty() && !purely_hallucination && trimmed_original.chars().count() > 12 {
         return trimmed_original.to_string();
     }
     text
@@ -291,11 +299,14 @@ mod tests {
     }
 
     #[test]
-    fn guardrail_resurrects_long_hallucination_only_input() {
-        // Parity with the Swift processor: the "never return empty for
-        // non-trivial input" guardrail wins over the hallucination filter
-        // when the phrase is the *entire* input and longer than 12 chars.
-        assert_eq!(clean("Спасибо за просмотр"), "Спасибо за просмотр");
+    fn long_hallucination_only_input_is_dropped() {
+        // Deliberate divergence from the Swift original, whose guardrail
+        // resurrects a pure-hallucination transcript. If the hallucination
+        // pass emptied the text, nothing must be pasted.
+        assert_eq!(clean("Спасибо за просмотр"), "");
+        assert_eq!(clean("Thanks for watching!"), "");
+        // The exact artefact a silent-mic dictation produced in the wild.
+        assert_eq!(clean("Продолжение следует..."), "");
     }
 
     #[test]

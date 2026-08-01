@@ -35,7 +35,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
 use windows::Win32::UI::Shell::{
     ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
     NOTIFYICONDATAW,
@@ -204,6 +204,7 @@ fn run_app() -> Result<()> {
         skip_empty: cfg.skip_empty,
         cleanup_enabled: cfg.cleanup_enabled,
         beeps: cfg.beeps,
+        ptt_vks: std::iter::once(primary).chain(secondary).collect(),
     };
     let controller =
         std::thread::spawn(move || controller_loop(rx, client, spawner, controller_cfg));
@@ -492,6 +493,14 @@ struct ControllerConfig {
     skip_empty: bool,
     cleanup_enabled: bool,
     beeps: bool,
+    /// The configured PTT virtual-key codes, for the lost-key-up failsafe.
+    ptt_vks: Vec<u32>,
+}
+
+/// True while any of the given keys is physically held down.
+fn any_key_down(vks: &[u32]) -> bool {
+    vks.iter()
+        .any(|&vk| unsafe { GetAsyncKeyState(vk as i32) } as u16 & 0x8000 != 0)
 }
 
 fn beep(enabled: bool, style: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) {
@@ -543,6 +552,26 @@ fn controller_loop(
     loop {
         let event = match pending.pop_front() {
             Some(e) => e,
+            // While recording, poll the physical key state as a failsafe:
+            // the hook's key-up can get lost (RDP focus changes, the UAC
+            // secure desktop), which would leave the microphone open
+            // forever and swallow every following press.
+            None if recording => match rx.recv_timeout(std::time::Duration::from_millis(150)) {
+                Ok(e) => e,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if any_key_down(&cfg.ptt_vks) {
+                        continue;
+                    }
+                    logging::log("failsafe: PTT key no longer held — stopping recording");
+                    if let Ok(mut t) = TRACKER.lock() {
+                        if let Some(t) = t.as_mut() {
+                            t.reset();
+                        }
+                    }
+                    AppEvent::PttUp
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            },
             None => match rx.recv() {
                 Ok(e) => e,
                 Err(_) => break,
@@ -569,10 +598,17 @@ fn controller_loop(
             AppEvent::PttUp if recording => {
                 recording = false;
                 let pcm = recorder.stop();
+                let peak = pcm.iter().fold(0.0f32, |m, s| m.max(s.abs()));
                 logging::log(&format!(
-                    "recording stopped: {:.2}s of audio",
-                    pcm.len() as f32 / audio::TARGET_SAMPLE_RATE as f32
+                    "recording stopped: {:.2}s of audio, peak level {:.3}",
+                    pcm.len() as f32 / audio::TARGET_SAMPLE_RATE as f32,
+                    peak
                 ));
+                if peak < 0.005 {
+                    logging::log(
+                        "audio looks silent — check the microphone (input device, level, privacy settings)",
+                    );
+                }
                 if pcm.len() < 1600 {
                     // Under 0.1 s — an accidental tap.
                     continue;

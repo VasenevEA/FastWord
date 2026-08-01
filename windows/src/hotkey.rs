@@ -86,6 +86,16 @@ impl PttTracker {
         }
     }
 
+    /// Forget all held-key state. Used by the controller's failsafe when a
+    /// key-up event was lost (RDP, UAC secure desktop) — otherwise the
+    /// tracker would believe the key is still held and swallow the next
+    /// press.
+    pub fn reset(&mut self) {
+        self.primary_down = false;
+        self.secondary_down = false;
+        self.active = false;
+    }
+
     /// Feed one key transition; returns Start/Stop when the push-to-talk
     /// state flips.
     pub fn on_key(&mut self, vk: u32, down: bool) -> Option<PttEvent> {
@@ -174,6 +184,17 @@ mod tests {
         assert_eq!(t.on_key(0xA1, true), Some(PttEvent::Start));
         assert_eq!(t.on_key(0xA1, false), Some(PttEvent::Stop));
         assert_eq!(t.on_key(0xA3, false), None);
+    }
+
+    #[test]
+    fn reset_recovers_from_lost_key_up() {
+        let mut t = PttTracker::new(0xA3, None, ComboMode::Either);
+        assert_eq!(t.on_key(0xA3, true), Some(PttEvent::Start));
+        // Key-up lost; failsafe resets the tracker.
+        t.reset();
+        // The next press must start a fresh recording.
+        assert_eq!(t.on_key(0xA3, true), Some(PttEvent::Start));
+        assert_eq!(t.on_key(0xA3, false), Some(PttEvent::Stop));
     }
 
     #[test]
