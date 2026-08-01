@@ -21,6 +21,10 @@ vulkan = ["whisper-rs/vulkan"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+# Official sherpa-onnx Rust bindings — the GigaAM-v3 Russian engine.
+# Statically linked by default; if the prebuilt lib download fails on the
+# build machine the env var SHERPA_ONNX_LIB_DIR can override it.
+sherpa-onnx = "1.13"
 serde_json = "1.0"
 base64 = "0.22"
 anyhow = "1.0"
@@ -31,10 +35,6 @@ num_cpus = "1.16"
 # that reports the engine as unavailable.
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }
-# Official sherpa-onnx Rust bindings — used for the GigaAM-v3 Russian engine.
-# Statically linked by default; if the prebuilt lib download fails on the
-# build machine the env var SHERPA_ONNX_LIB_DIR can override it.
-sherpa-onnx = "1.13"
 
 # CPU inference elsewhere. OpenMP matters: without it (and the weight-repack
 # path in current ggml) quantized models run an order of magnitude slower —

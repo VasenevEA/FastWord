@@ -525,7 +525,7 @@ unsafe fn refresh_models(hwnd: HWND) {
         let status = if downloading == Some(i) {
             let pct = (models::progress_bytes() * 100 / m.size_bytes.max(1)).min(100);
             ui.status_downloading.replace("{pct}", &pct.to_string())
-        } else if models::local_path(m) == active_path {
+        } else if !cfg.uses_gigaam() && models::local_path(m) == active_path {
             ui.status_active.to_string()
         } else if models::is_downloaded(m) {
             ui.status_downloaded.to_string()
@@ -534,6 +534,22 @@ unsafe fn refresh_models(hwnd: HWND) {
         };
         lv_set_row(lv, i, &[m.display, &models::size_string(m.size_bytes), &status]);
     }
+    // GigaAM — the extra directory-based engine row (Russian only).
+    let g_status = if downloading == Some(models::GIGAAM_INDEX) {
+        let pct = (models::progress_bytes() * 100 / models::GIGAAM_SIZE_BYTES).min(100);
+        ui.status_downloading.replace("{pct}", &pct.to_string())
+    } else if cfg.uses_gigaam() && models::gigaam_installed() {
+        ui.status_active.to_string()
+    } else if models::gigaam_installed() {
+        ui.status_downloaded.to_string()
+    } else {
+        ui.status_not_downloaded.to_string()
+    };
+    lv_set_row(
+        lv,
+        models::GIGAAM_INDEX,
+        &[models::GIGAAM_DISPLAY, &models::size_string(models::GIGAAM_SIZE_BYTES), &g_status],
+    );
     if let Some(idx) = selected {
         use windows::Win32::UI::Controls::{LVIS_SELECTED, LVITEMW, LVM_SETITEMSTATE};
         let item = LVITEMW { state: LVIS_SELECTED, stateMask: LVIS_SELECTED, ..Default::default() };
@@ -547,37 +563,69 @@ unsafe fn model_action(hwnd: HWND, cmd: i32) {
         ID_M_CANCEL => models::cancel_download(),
         _ => {
             let Some(idx) = lv_selected(lv) else { return };
-            let m = &models::CATALOG[idx];
-            match cmd {
-                ID_M_DOWNLOAD => {
-                    if !models::is_downloaded(m) {
-                        models::start_download(idx);
-                    }
-                }
-                ID_M_USE => {
-                    if models::is_downloaded(m) {
-                        let mut cfg = config::load_or_create().unwrap_or_default();
-                        cfg.model_path = models::local_path(m).to_string_lossy().into_owned();
-                        match config::save(&cfg) {
-                            Ok(()) => {
-                                logging::log(&format!("active model -> {}", m.filename));
-                                prompt_restart(hwnd);
-                            }
-                            Err(e) => logging::log(&format!("model select failed: {e:#}")),
+            if idx == models::GIGAAM_INDEX {
+                gigaam_action(hwnd, cmd);
+            } else {
+                let m = &models::CATALOG[idx];
+                match cmd {
+                    ID_M_DOWNLOAD => {
+                        if !models::is_downloaded(m) {
+                            models::start_download(idx);
                         }
                     }
-                }
-                ID_M_DELFILE => {
-                    let cfg = config::load_or_create().unwrap_or_default();
-                    if models::is_downloaded(m) && models::local_path(m) != cfg.resolved_model_path() {
-                        let _ = std::fs::remove_file(models::local_path(m));
+                    ID_M_USE => {
+                        if models::is_downloaded(m) {
+                            set_active_model(hwnd, &models::local_path(m).to_string_lossy(), m.filename);
+                        }
                     }
+                    ID_M_DELFILE => {
+                        let cfg = config::load_or_create().unwrap_or_default();
+                        if models::is_downloaded(m)
+                            && (cfg.uses_gigaam() || models::local_path(m) != cfg.resolved_model_path())
+                        {
+                            let _ = std::fs::remove_file(models::local_path(m));
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     }
     refresh_models(hwnd);
+}
+
+unsafe fn gigaam_action(hwnd: HWND, cmd: i32) {
+    match cmd {
+        ID_M_DOWNLOAD => {
+            if !models::gigaam_installed() {
+                models::start_download(models::GIGAAM_INDEX);
+            }
+        }
+        ID_M_USE => {
+            if models::gigaam_installed() {
+                set_active_model(hwnd, config::GIGAAM_SENTINEL, "gigaam");
+            }
+        }
+        ID_M_DELFILE => {
+            let cfg = config::load_or_create().unwrap_or_default();
+            if !cfg.uses_gigaam() {
+                models::delete_gigaam();
+            }
+        }
+        _ => {}
+    }
+}
+
+unsafe fn set_active_model(hwnd: HWND, model_path: &str, log_name: &str) {
+    let mut cfg = config::load_or_create().unwrap_or_default();
+    cfg.model_path = model_path.to_string();
+    match config::save(&cfg) {
+        Ok(()) => {
+            logging::log(&format!("active model -> {log_name}"));
+            prompt_restart(hwnd);
+        }
+        Err(e) => logging::log(&format!("model select failed: {e:#}")),
+    }
 }
 
 // ---------------------------------------------------------------------------

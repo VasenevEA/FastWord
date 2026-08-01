@@ -47,6 +47,34 @@ pub const CATALOG: [WhisperModel; 9] = [
     },
 ];
 
+// ---------------------------------------------------------------------------
+// GigaAM v3 (Russian) — a directory engine, not a single ggml file. Same
+// source and layout as macOS GigaAMInstaller.swift.
+
+pub const GIGAAM_DISPLAY: &str = "GigaAM v3 (Sber, Russian)";
+pub const GIGAAM_SIZE_BYTES: u64 = 225_000_000; // model.int8.onnx ~215 MB + tokens.txt
+const GIGAAM_REPO: &str =
+    "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/resolve/main";
+const GIGAAM_FILES: [&str; 2] = ["model.int8.onnx", "tokens.txt"];
+
+/// Virtual row index used for GigaAM in the download machinery and the UI
+/// (one past the whisper catalog).
+pub const GIGAAM_INDEX: usize = CATALOG.len();
+
+pub fn gigaam_dir() -> PathBuf {
+    models_dir().join(crate::config::GIGAAM_SENTINEL)
+}
+
+pub fn gigaam_installed() -> bool {
+    GIGAAM_FILES.iter().all(|f| gigaam_dir().join(f).exists())
+}
+
+pub fn delete_gigaam() {
+    for f in GIGAAM_FILES {
+        let _ = std::fs::remove_file(gigaam_dir().join(f));
+    }
+}
+
 pub fn models_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -103,7 +131,51 @@ pub fn take_result() -> Option<bool> {
     }
 }
 
-/// Start downloading CATALOG[index]; no-op if a download is running.
+/// Run one curl download to `partial`, updating DOWNLOADED_BYTES with
+/// `base` + current file size. Returns success.
+fn curl_one(url: &str, partial: &std::path::Path, base: u64) -> bool {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    #[allow(unused_imports)]
+    use std::os::windows::process::CommandExt;
+    let _ = std::fs::remove_file(partial);
+    let child = Command::new("curl.exe")
+        .args(["-L", "--fail", "-sS", "-o"])
+        .arg(partial)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    match child {
+        Ok(child) => {
+            *CURL.lock().unwrap() = Some(child);
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                if let Ok(md) = std::fs::metadata(partial) {
+                    DOWNLOADED_BYTES.store(base + md.len(), Ordering::Relaxed);
+                }
+                let mut guard = CURL.lock().unwrap();
+                match guard.as_mut().map(|c| c.try_wait()) {
+                    Some(Ok(Some(status))) => {
+                        *guard = None;
+                        break status.success();
+                    }
+                    Some(Ok(None)) => continue,
+                    // Cancelled (killed + cleared) or wait error.
+                    _ => break false,
+                }
+            }
+        }
+        Err(e) => {
+            crate::logging::log(&format!("curl spawn failed: {e:#}"));
+            false
+        }
+    }
+}
+
+/// Start downloading CATALOG[index] (or GigaAM when index == GIGAAM_INDEX);
+/// no-op if a download is running.
 pub fn start_download(index: usize) -> bool {
     if DOWNLOADING
         .compare_exchange(-1, index as i32, Ordering::SeqCst, Ordering::SeqCst)
@@ -112,63 +184,42 @@ pub fn start_download(index: usize) -> bool {
         return false;
     }
     DOWNLOADED_BYTES.store(0, Ordering::Relaxed);
-    let model = &CATALOG[index];
-    let dest = local_path(model);
-    let partial = dest.with_extension("bin.partial");
-    let url = download_url(model);
-    crate::logging::log(&format!("downloading {} -> {}", url, dest.display()));
 
     std::thread::spawn(move || {
-        let _ = std::fs::create_dir_all(models_dir());
-        let _ = std::fs::remove_file(&partial);
-
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        #[allow(unused_imports)]
-        use std::os::windows::process::CommandExt;
-        let child = Command::new("curl.exe")
-            .args(["-L", "--fail", "-sS", "-o"])
-            .arg(&partial)
-            .arg(&url)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
-
-        let ok = match child {
-            Ok(child) => {
-                *CURL.lock().unwrap() = Some(child);
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                    if let Ok(md) = std::fs::metadata(&partial) {
-                        DOWNLOADED_BYTES.store(md.len(), Ordering::Relaxed);
-                    }
-                    let mut guard = CURL.lock().unwrap();
-                    match guard.as_mut().map(|c| c.try_wait()) {
-                        Some(Ok(Some(status))) => {
-                            *guard = None;
-                            break status.success();
-                        }
-                        Some(Ok(None)) => continue,
-                        // Cancelled (killed + cleared) or wait error.
-                        _ => break false,
-                    }
+        let ok = if index == GIGAAM_INDEX {
+            let dir = gigaam_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            crate::logging::log(&format!("downloading GigaAM -> {}", dir.display()));
+            let mut done = 0u64;
+            let mut ok = true;
+            for name in GIGAAM_FILES {
+                let dest = dir.join(name);
+                let partial = dir.join(format!("{name}.partial"));
+                let url = format!("{GIGAAM_REPO}/{name}");
+                ok = curl_one(&url, &partial, done) && std::fs::rename(&partial, &dest).is_ok();
+                if !ok {
+                    let _ = std::fs::remove_file(&partial);
+                    break;
                 }
+                done = DOWNLOADED_BYTES.load(Ordering::Relaxed);
             }
-            Err(e) => {
-                crate::logging::log(&format!("curl spawn failed: {e:#}"));
-                false
+            ok
+        } else {
+            let model = &CATALOG[index];
+            let dest = local_path(model);
+            let partial = dest.with_extension("bin.partial");
+            let url = download_url(model);
+            crate::logging::log(&format!("downloading {} -> {}", url, dest.display()));
+            let _ = std::fs::create_dir_all(models_dir());
+            let ok = curl_one(&url, &partial, 0) && std::fs::rename(&partial, &dest).is_ok();
+            if !ok {
+                let _ = std::fs::remove_file(&partial);
             }
+            ok
         };
-
-        let ok = ok && std::fs::rename(&partial, &dest).is_ok();
-        if !ok {
-            let _ = std::fs::remove_file(&partial);
-        }
         crate::logging::log(&format!(
-            "download {}: {}",
-            if ok { "finished" } else { "failed/cancelled" },
-            dest.display()
+            "download {}",
+            if ok { "finished" } else { "failed/cancelled" }
         ));
         LAST_RESULT.store(if ok { 0 } else { 1 }, Ordering::Relaxed);
         DOWNLOADING.store(-1, Ordering::SeqCst);

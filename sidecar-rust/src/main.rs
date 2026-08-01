@@ -19,34 +19,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-#[cfg(target_os = "macos")]
 mod gigaam;
-
-// sherpa-onnx (GigaAM's runtime) is only wired up on macOS for now. Other
-// platforms get a stub with the same API surface that reports the engine as
-// unavailable, so the protocol stays identical everywhere.
-#[cfg(not(target_os = "macos"))]
-mod gigaam {
-    use std::path::{Path, PathBuf};
-
-    use anyhow::{anyhow, Result};
-
-    pub struct Recognizer;
-
-    impl Recognizer {
-        pub fn load(_model_dir: &Path) -> Result<Self> {
-            Err(anyhow!("GigaAM engine is not available on this platform yet"))
-        }
-
-        pub fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String> {
-            Err(anyhow!("GigaAM engine is not available on this platform yet"))
-        }
-    }
-
-    pub fn default_model_dir() -> Option<PathBuf> {
-        None
-    }
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

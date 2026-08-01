@@ -197,12 +197,23 @@ pub fn load_or_create() -> Result<Config> {
     parse(&text)
 }
 
+/// Sentinel `model_path` value selecting the GigaAM engine (same id the
+/// macOS app stores in its activeModel setting). GigaAM isn't a whisper
+/// model, so the sidecar still needs a whisper model for non-Russian and
+/// warmup — `resolved_model_path` falls back to the default.
+pub const GIGAAM_SENTINEL: &str = "gigaam-v3-ctc";
+
 impl Config {
+    pub fn uses_gigaam(&self) -> bool {
+        self.model_path.trim() == GIGAAM_SENTINEL
+    }
+
     pub fn resolved_model_path(&self) -> PathBuf {
-        if self.model_path.trim().is_empty() {
+        let trimmed = self.model_path.trim();
+        if trimmed.is_empty() || trimmed == GIGAAM_SENTINEL {
             default_model_path()
         } else {
-            PathBuf::from(self.model_path.trim())
+            PathBuf::from(trimmed)
         }
     }
 }
@@ -298,6 +309,18 @@ mod tests {
             cfg.resolved_model_path(),
             PathBuf::from("C:/models/tiny.bin")
         );
+    }
+
+    #[test]
+    fn gigaam_sentinel_keeps_whisper_fallback_path() {
+        let cfg = parse("model_path = \"gigaam-v3-ctc\"").unwrap();
+        assert!(cfg.uses_gigaam());
+        // The sidecar still needs a real whisper model file to start.
+        assert!(cfg
+            .resolved_model_path()
+            .to_string_lossy()
+            .ends_with("ggml-large-v3-turbo-q5_0.bin"));
+        assert!(!parse("").unwrap().uses_gigaam());
     }
 
     #[test]

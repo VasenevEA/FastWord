@@ -24,6 +24,8 @@ pub struct Request {
     pub no_speech_thold: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +55,7 @@ impl Request {
             language: None,
             no_speech_thold: None,
             initial_prompt: None,
+            engine: None,
         }
     }
 
@@ -65,6 +68,7 @@ impl Request {
         language: &str,
         initial_prompt: Option<&str>,
         skip_empty: bool,
+        engine: Option<&str>,
     ) -> Self {
         let bytes = crate::audio::pcm_to_le_bytes(pcm);
         Self {
@@ -75,6 +79,7 @@ impl Request {
             language: Some(language.to_string()),
             no_speech_thold: Some(if skip_empty { 0.6 } else { 0.0 }),
             initial_prompt: initial_prompt.map(str::to_string),
+            engine: engine.map(str::to_string),
         }
     }
 }
@@ -171,10 +176,17 @@ impl SidecarClient {
             path = format!("{};{}", path, cuda_bin.display());
         }
 
-        let mut child = Command::new(sidecar_exe)
-            .env("FASTWORD_MODEL", model_path)
+        let mut cmd = Command::new(sidecar_exe);
+        cmd.env("FASTWORD_MODEL", model_path)
             .env("FASTWORD_IDLE_EVICT", idle_evict_secs.to_string())
-            .env("PATH", path)
+            .env("PATH", path);
+        // Point the sidecar at the GigaAM model dir when installed — it's
+        // only loaded on the first engine=gigaam request, so this is free
+        // for users who never enable it (mirrors the macOS client).
+        if crate::models::gigaam_installed() {
+            cmd.env("FASTWORD_GIGAAM_MODEL", crate::models::gigaam_dir());
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -220,9 +232,10 @@ impl SidecarClient {
         language: &str,
         initial_prompt: Option<&str>,
         skip_empty: bool,
+        engine: Option<&str>,
     ) -> Result<String> {
         let id = self.take_id();
-        let req = Request::transcribe(&id, pcm, language, initial_prompt, skip_empty);
+        let req = Request::transcribe(&id, pcm, language, initial_prompt, skip_empty, engine);
         self.roundtrip(&req)
     }
 
@@ -292,8 +305,18 @@ mod tests {
     }
 
     #[test]
+    fn gigaam_engine_request_matches_swift_client() {
+        // Mirrors what SidecarClient.swift sends when GigaAM is active.
+        let req = Request::transcribe("1", &[0.0f32], "ru", None, true, Some("gigaam"));
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(v["engine"], "gigaam");
+        assert_eq!(v["language"], "ru");
+    }
+
+    #[test]
     fn transcribe_request_matches_sidecar_protocol() {
-        let req = Request::transcribe("1", &[0.0f32], "ru", None, true);
+        let req = Request::transcribe("1", &[0.0f32], "ru", None, true, None);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
         assert_eq!(v["cmd"], "transcribe");
@@ -308,7 +331,7 @@ mod tests {
 
     #[test]
     fn skip_empty_off_disables_no_speech_filter() {
-        let req = Request::transcribe("1", &[], "", Some("hint"), false);
+        let req = Request::transcribe("1", &[], "", Some("hint"), false, None);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
         assert_eq!(v["no_speech_thold"], 0.0);

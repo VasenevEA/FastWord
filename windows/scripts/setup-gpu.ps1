@@ -102,6 +102,9 @@ if (-not $env:LIBCLANG_PATH) {
 # (the cmake crate otherwise produces an unoptimized MSVC build).
 $env:CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
 $env:CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
+# sherpa-onnx (GigaAM) ships a static-MT prebuilt; keep the whole binary on
+# the static runtime so the linker agrees.
+$env:RUSTFLAGS = "-C target-feature=+crt-static"
 # Compile kernels only for the requested GPU generation - much faster build.
 $env:CMAKE_CUDA_ARCHITECTURES = $Arch
 # The Visual Studio generator requires CUDA's MSBuild integration, which the

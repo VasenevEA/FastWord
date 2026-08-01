@@ -192,7 +192,16 @@ fn run_app() -> Result<()> {
     };
     let client = spawner.spawn()?;
 
-    let (language, initial_prompt) = languages::resolve(&cfg.language);
+    let (mut language, mut initial_prompt) = languages::resolve(&cfg.language);
+    // GigaAM selected in the Models tab: route to the sherpa-onnx engine.
+    // It's Russian-only, so the language hint is pinned like on macOS.
+    let engine = if cfg.uses_gigaam() && models::gigaam_installed() {
+        language = "ru".to_string();
+        initial_prompt = None;
+        Some("gigaam".to_string())
+    } else {
+        None
+    };
     logging::log(&format!(
         "hotkey: {}{} | language: {}",
         cfg.hotkey,
@@ -209,6 +218,7 @@ fn run_app() -> Result<()> {
     let controller_cfg = ControllerConfig {
         language,
         initial_prompt,
+        engine,
         skip_empty: cfg.skip_empty,
         cleanup_enabled: cfg.cleanup_enabled,
         beeps: cfg.beeps,
@@ -531,6 +541,8 @@ fn run_message_loop() {
 struct ControllerConfig {
     language: String,
     initial_prompt: Option<String>,
+    /// None = whisper; Some("gigaam") = the Russian sherpa-onnx engine.
+    engine: Option<String>,
     skip_empty: bool,
     cleanup_enabled: bool,
     beeps: bool,
@@ -673,6 +685,7 @@ fn controller_loop(
                     &cfg.language,
                     cfg.initial_prompt.as_deref(),
                     cfg.skip_empty,
+                    cfg.engine.as_deref(),
                 );
                 // Drain events that queued up during inference: Escape
                 // discards this result; everything else (a new dictation's

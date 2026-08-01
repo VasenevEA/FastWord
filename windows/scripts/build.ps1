@@ -58,6 +58,9 @@ Write-Host "LIBCLANG_PATH = $env:LIBCLANG_PATH"
 # and applied per-target by ggml's own cmake via GGML_NATIVE.)
 $env:CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
 $env:CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
+# sherpa-onnx (GigaAM) ships a static-MT prebuilt; build the rust CRT and
+# whisper.cpp with the static runtime so the linker agrees.
+$env:RUSTFLAGS = "-C target-feature=+crt-static"
 
 Write-Host "`n=== Building sidecar (whisper.cpp — first build takes a while) ==="
 Push-Location (Join-Path $repo "sidecar-rust")
