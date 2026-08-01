@@ -37,9 +37,17 @@ pub struct Response {
 
 impl Request {
     pub fn warmup(id: &str) -> Self {
+        Self::bare(id, "warmup")
+    }
+
+    pub fn info(id: &str) -> Self {
+        Self::bare(id, "info")
+    }
+
+    fn bare(id: &str, cmd: &str) -> Self {
         Self {
             id: id.to_string(),
-            cmd: "warmup".into(),
+            cmd: cmd.into(),
             sample_rate: None,
             audio_b64: None,
             language: None,
@@ -69,6 +77,15 @@ impl Request {
             initial_prompt: initial_prompt.map(str::to_string),
         }
     }
+}
+
+/// Extract the backend name from an `info` response line. Unknown or
+/// malformed lines count as "cpu" (older sidecars had no `info` at all).
+pub fn parse_backend(info: &str) -> &str {
+    info.split_whitespace()
+        .find_map(|tok| tok.strip_prefix("backend="))
+        .filter(|b| !b.is_empty())
+        .unwrap_or("cpu")
 }
 
 /// Locate the sidecar binary: next to our own exe first (packaged layout),
@@ -161,6 +178,12 @@ impl SidecarClient {
     pub fn warmup(&mut self) -> Result<String> {
         let id = self.take_id();
         self.roundtrip(&Request::warmup(&id))
+    }
+
+    /// Version/backend line, e.g. "fastword-sidecar 0.2.0 backend=cpu".
+    pub fn info(&mut self) -> Result<String> {
+        let id = self.take_id();
+        self.roundtrip(&Request::info(&id))
     }
 
     pub fn transcribe(
@@ -263,6 +286,25 @@ mod tests {
         assert_eq!(v["no_speech_thold"], 0.0);
         assert_eq!(v["initial_prompt"], "hint");
         assert_eq!(v["language"], "");
+    }
+
+    #[test]
+    fn info_request_wire_format() {
+        let req = Request::info("7");
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"id":"7","cmd":"info"}"#
+        );
+    }
+
+    #[test]
+    fn parses_backend_from_info_line() {
+        assert_eq!(parse_backend("fastword-sidecar 0.2.0 backend=cuda"), "cuda");
+        assert_eq!(parse_backend("fastword-sidecar 0.2.0 backend=cpu"), "cpu");
+        // Older sidecar / unexpected reply → assume cpu.
+        assert_eq!(parse_backend("unknown cmd: info"), "cpu");
+        assert_eq!(parse_backend(""), "cpu");
+        assert_eq!(parse_backend("backend="), "cpu");
     }
 
     #[test]

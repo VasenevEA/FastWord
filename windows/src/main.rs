@@ -13,6 +13,7 @@
 
 mod audio;
 mod config;
+mod gpu_hint;
 mod history;
 mod hotkey;
 mod insert;
@@ -442,7 +443,7 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     }
 }
 
-fn shell_open(path: &str) {
+pub fn shell_open(path: &str) {
     let verb = wide("open");
     let path_w = wide(path);
     unsafe {
@@ -504,6 +505,16 @@ fn controller_loop(
             None
         }
     };
+
+    // Ask the sidecar what it was built with; if it's CPU-only next to an
+    // NVIDIA GPU, offer the GPU setup path (once).
+    match client.info() {
+        Ok(line) => {
+            logging::log(&line);
+            gpu_hint::maybe_offer(sidecar::parse_backend(&line));
+        }
+        Err(e) => logging::log(&format!("sidecar info failed: {e:#}")),
+    }
 
     // Load the model up front so the first dictation isn't slow.
     let t0 = std::time::Instant::now();

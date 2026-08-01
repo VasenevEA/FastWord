@@ -239,10 +239,30 @@ impl Engines {
     }
 }
 
+/// Which inference backend this binary was compiled with. The client uses
+/// this to suggest a GPU build when it finds a capable GPU next to a
+/// CPU-only sidecar.
+fn backend_name() -> &'static str {
+    if cfg!(feature = "cuda") {
+        "cuda"
+    } else if cfg!(feature = "vulkan") {
+        "vulkan"
+    } else if cfg!(target_os = "macos") {
+        "metal"
+    } else {
+        "cpu"
+    }
+}
+
 fn handle(req: Request, engines: &Arc<Engines>) -> Response {
     let id = req.id.clone();
     let res: Result<String> = (|| {
         match req.cmd.as_str() {
+            "info" => Ok(format!(
+                "fastword-sidecar {} backend={}",
+                env!("CARGO_PKG_VERSION"),
+                backend_name()
+            )),
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
                 let mut h = engines.whisper.lock().unwrap();
@@ -427,6 +447,18 @@ mod tests {
         let res: Result<Request, _> =
             serde_json::from_str(r#"{"id":"1","cmd":"transcribe","bogus":true}"#);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn info_reports_version_and_backend() {
+        // `info` must not touch the model, so a dummy path is fine.
+        let engines = Arc::new(Engines::new(PathBuf::from("does-not-exist.bin"), None));
+        let req: Request = serde_json::from_str(r#"{"id":"i","cmd":"info"}"#).unwrap();
+        let resp = handle(req, &engines);
+        assert!(resp.error.is_none());
+        let text = resp.text.unwrap();
+        assert!(text.starts_with("fastword-sidecar "), "{text}");
+        assert!(text.contains("backend="), "{text}");
     }
 
     #[test]

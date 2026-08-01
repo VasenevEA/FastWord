@@ -60,9 +60,24 @@ RAM and the next dictation warms up again.
 | `cleanup_enabled` | `true` | strip Whisper artefacts (credits, repeats) |
 | `beeps` | `true` | audible record start/error cues |
 
+### GPU (CUDA)
+
+With an NVIDIA GPU, transcription runs roughly 10x faster than on CPU.
+FastWord detects this itself: if it finds an NVIDIA driver while running a
+CPU-only engine, it offers the setup once at startup. To enable manually:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\scripts\setup-gpu.ps1
+```
+
+The script installs the CUDA toolkit if needed (one UAC confirmation,
+several GB) and rebuilds the sidecar with `--features cuda`. Kernels are
+built for RTX 30xx by default — pass `-Arch 89` for RTX 40xx, `-Arch 75`
+for RTX 20xx/GTX 16xx. After a restart the log shows `backend=cuda`.
+
 ### Performance
 
-Inference is CPU-only for now. Ballpark on an 18-core Haswell Xeon:
+CPU ballpark on an 18-core Haswell Xeon:
 ~2x realtime with the default `large-v3-turbo-q5_0` (a 5 s clip transcribes
 in ~10 s). On a slow machine download a smaller model and point
 `model_path` at it — `small` is roughly 10x faster than `large-v3-turbo`
@@ -123,11 +138,8 @@ cd sidecar-rust ; cargo test   # sidecar: protocol + PCM decoding
 
 ## Not ported yet
 
-- GPU acceleration. whisper.cpp's CUDA backend would be a big win on this
-  machine class (an RTX 3060 runs large-v3-turbo ~20x realtime) but
-  building it needs the CUDA toolkit installed; the Vulkan backend needs
-  the Vulkan SDK. Both are `whisper-rs` feature flags away once an SDK is
-  present.
+- Vulkan GPU backend (for non-NVIDIA GPUs) — the `vulkan` cargo feature
+  exists on the sidecar but needs the Vulkan SDK at build time
 - GigaAM-v3 Russian engine (sherpa-onnx is cfg-gated to macOS)
 - Settings / history / model-management UI, HUD, live preview
 - Localized UI strings
