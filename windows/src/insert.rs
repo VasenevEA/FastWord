@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use arboard::Clipboard;
+use arboard::{Clipboard, SetExtWindows};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY, VK_CONTROL, VK_V,
@@ -24,8 +24,15 @@ pub fn insert_text(text: &str) -> Result<()> {
     // images, files — is not restored; known v1 limitation.)
     let snapshot = clipboard.get_text().ok();
 
+    // Dictated text is sensitive — keep it out of the Win+V clipboard
+    // history and the cross-device cloud clipboard ("nothing leaves your
+    // PC"). The user's own clipboard content is restored below without
+    // these flags, exactly as it was.
     clipboard
-        .set_text(text.to_string())
+        .set()
+        .exclude_from_cloud()
+        .exclude_from_history()
+        .text(text.to_string())
         .context("writing text to clipboard")?;
 
     // Give the clipboard write a moment to settle before the paste chord.

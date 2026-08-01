@@ -141,6 +141,22 @@ Same two-process design as macOS — only the UI layer differs:
 - Everything links against the static CRT (the sherpa-onnx prebuilt is
   static-MT), so no VC redistributable is required at runtime.
 
+## Privacy notes
+
+- Audio never touches the disk; transcription is fully local. The only
+  network requests the app ever makes are HTTPS model downloads from
+  `huggingface.co` (the GigaAM files come from the sherpa-onnx project's
+  mirror of Sber's model). At build time, cargo additionally fetches the
+  prebuilt `sherpa-onnx` static library.
+- Pasted transcripts are excluded from the Windows clipboard history
+  (Win+V) and the cross-device cloud clipboard.
+- The log file contains timings and error messages, never transcript
+  text. Transcripts live only in `~\.fastword\history.sqlite`, which you
+  can clear from the History window.
+- Uninstalling keeps your history, settings and downloaded models on
+  disk; delete `~\.fastword`, `%APPDATA%\FastWord` and
+  `%LOCALAPPDATA%\fastword` manually for a full wipe.
+
 ## Tests
 
 ```powershell

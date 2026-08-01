@@ -131,6 +131,16 @@ pub fn take_result() -> Option<bool> {
     }
 }
 
+/// Sanity check after a download: catalog sizes are approximate, so accept
+/// anything within a loose lower bound. This catches truncated transfers
+/// and error pages saved as the file, not bit-flips (no published hashes).
+fn size_plausible(path: &std::path::Path, expected: u64) -> bool {
+    match std::fs::metadata(path) {
+        Ok(md) => md.len() >= expected / 2,
+        Err(_) => false,
+    }
+}
+
 /// Run one curl download to `partial`, updating DOWNLOADED_BYTES with
 /// `base` + current file size. Returns success.
 fn curl_one(url: &str, partial: &std::path::Path, base: u64) -> bool {
@@ -196,7 +206,9 @@ pub fn start_download(index: usize) -> bool {
                 let dest = dir.join(name);
                 let partial = dir.join(format!("{name}.partial"));
                 let url = format!("{GIGAAM_REPO}/{name}");
-                ok = curl_one(&url, &partial, done) && std::fs::rename(&partial, &dest).is_ok();
+                ok = curl_one(&url, &partial, done)
+                    && (name != "model.int8.onnx" || size_plausible(&partial, GIGAAM_SIZE_BYTES))
+                    && std::fs::rename(&partial, &dest).is_ok();
                 if !ok {
                     let _ = std::fs::remove_file(&partial);
                     break;
@@ -211,7 +223,9 @@ pub fn start_download(index: usize) -> bool {
             let url = download_url(model);
             crate::logging::log(&format!("downloading {} -> {}", url, dest.display()));
             let _ = std::fs::create_dir_all(models_dir());
-            let ok = curl_one(&url, &partial, 0) && std::fs::rename(&partial, &dest).is_ok();
+            let ok = curl_one(&url, &partial, 0)
+                && size_plausible(&partial, model.size_bytes)
+                && std::fs::rename(&partial, &dest).is_ok();
             if !ok {
                 let _ = std::fs::remove_file(&partial);
             }

@@ -529,11 +529,13 @@ pub fn restart_app() {
     let Ok(exe) = std::env::current_exe() else { return };
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    // PowerShell single-quote escaping: double any embedded quotes so a
+    // path like C:\Users\O'Brien can't break out of the string.
+    let exe_quoted = exe.display().to_string().replace('\'', "''");
     let _ = std::process::Command::new("powershell")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command"])
         .arg(format!(
-            "Start-Sleep -Milliseconds 900; Start-Process '{}'",
-            exe.display()
+            "Start-Sleep -Milliseconds 900; Start-Process '{exe_quoted}'"
         ))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
