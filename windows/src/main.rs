@@ -169,10 +169,16 @@ fn run_app() -> Result<()> {
         }
     }
 
-    // A missing model is not fatal — a fresh install has none. Start
-    // without the sidecar and point the user at the Models tab instead.
+    // Engine routing (GigaAM is selected in the Models tab and is
+    // Russian-only, so its language hint is pinned like on macOS).
+    let gigaam_active = cfg.uses_gigaam() && models::gigaam_installed();
+
+    // A missing whisper model is not fatal — a fresh install has none, and
+    // a GigaAM-only install doesn't need one at all. Only when *no* usable
+    // engine exists do we start without the sidecar and point the user at
+    // the Models tab.
     let model_path = cfg.resolved_model_path();
-    let model_missing = !model_path.exists();
+    let model_missing = !model_path.exists() && !gigaam_active;
     if model_missing {
         logging::log(&format!("model not found at {} — starting without sidecar", model_path.display()));
     }
@@ -194,9 +200,7 @@ fn run_app() -> Result<()> {
     let client = if model_missing { None } else { Some(spawner.spawn()?) };
 
     let (mut language, mut initial_prompt) = languages::resolve(&cfg.language);
-    // GigaAM selected in the Models tab: route to the sherpa-onnx engine.
-    // It's Russian-only, so the language hint is pinned like on macOS.
-    let engine = if cfg.uses_gigaam() && models::gigaam_installed() {
+    let engine = if gigaam_active {
         language = "ru".to_string();
         initial_prompt = None;
         Some("gigaam".to_string())
@@ -628,9 +632,9 @@ fn controller_loop(
             Err(e) => logging::log(&format!("sidecar info failed: {e:#}")),
         }
 
-        // Load the model up front so the first dictation isn't slow.
+        // Load the active engine up front so the first dictation isn't slow.
         let t0 = std::time::Instant::now();
-        match client.warmup() {
+        match client.warmup(cfg.engine.as_deref()) {
             Ok(_) => logging::log(&format!("model warmed up in {:.1}s", t0.elapsed().as_secs_f32())),
             Err(e) => logging::log(&format!("warmup failed: {e:#}")),
         }

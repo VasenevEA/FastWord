@@ -38,8 +38,10 @@ pub struct Response {
 }
 
 impl Request {
-    pub fn warmup(id: &str) -> Self {
-        Self::bare(id, "warmup")
+    pub fn warmup(id: &str, engine: Option<&str>) -> Self {
+        let mut req = Self::bare(id, "warmup");
+        req.engine = engine.map(str::to_string);
+        req
     }
 
     pub fn info(id: &str) -> Self {
@@ -215,9 +217,10 @@ impl SidecarClient {
         })
     }
 
-    pub fn warmup(&mut self) -> Result<String> {
+    /// Preload the engine that will serve requests (None = whisper).
+    pub fn warmup(&mut self, engine: Option<&str>) -> Result<String> {
         let id = self.take_id();
-        self.roundtrip(&Request::warmup(&id))
+        self.roundtrip(&Request::warmup(&id, engine))
     }
 
     /// Version/backend line, e.g. "fastword-sidecar 0.2.0 backend=cpu".
@@ -297,10 +300,15 @@ mod tests {
 
     #[test]
     fn warmup_request_wire_format() {
-        let req = Request::warmup("42");
+        let req = Request::warmup("42", None);
         assert_eq!(
             serde_json::to_string(&req).unwrap(),
             r#"{"id":"42","cmd":"warmup"}"#
+        );
+        let req = Request::warmup("43", Some("gigaam"));
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            r#"{"id":"43","cmd":"warmup","engine":"gigaam"}"#
         );
     }
 

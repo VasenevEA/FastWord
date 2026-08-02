@@ -74,6 +74,12 @@ impl ModelHolder {
 
     fn ensure_loaded(&mut self) -> Result<&WhisperContext> {
         if self.ctx.is_none() {
+            if !self.model_path.exists() {
+                return Err(anyhow!(
+                    "whisper model file not found at {} (set FASTWORD_MODEL or download one)",
+                    self.model_path.display()
+                ));
+            }
             log(&format!("loading model {}", self.model_path.display()));
             let path_str = self
                 .model_path
@@ -238,8 +244,17 @@ fn handle(req: Request, engines: &Arc<Engines>) -> Response {
             )),
             "warmup" => {
                 let silence = vec![0.0f32; 16_000 / 2]; // 0.5s
-                let mut h = engines.whisper.lock().unwrap();
-                let _ = h.transcribe(&silence, None, 0.0, None)?;
+                match req.engine.as_deref() {
+                    // Preload the engine that will actually serve requests —
+                    // a GigaAM-only install has no whisper model at all.
+                    Some("gigaam") => {
+                        let _ = engines.run_gigaam(&silence)?;
+                    }
+                    _ => {
+                        let mut h = engines.whisper.lock().unwrap();
+                        let _ = h.transcribe(&silence, None, 0.0, None)?;
+                    }
+                }
                 Ok(String::new())
             }
             "transcribe" => {
@@ -302,9 +317,11 @@ fn main() -> Result<()> {
         std::env::var("FASTWORD_MODEL")
             .unwrap_or_else(|_| String::from("models/ggml-large-v3-turbo-q5_0.bin")),
     );
+    // Missing whisper model is not fatal: it is loaded lazily on the first
+    // whisper request, and a GigaAM-only setup never makes one.
     if !model_path.exists() {
-        return Err(anyhow!(
-            "model file not found at {} (set FASTWORD_MODEL)",
+        log(&format!(
+            "whisper model not found at {} — whisper requests will fail until it exists",
             model_path.display()
         ));
     }
