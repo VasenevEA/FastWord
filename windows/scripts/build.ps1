@@ -60,7 +60,9 @@ $env:CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
 $env:CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG"
 # sherpa-onnx (GigaAM) ships a static-MT prebuilt; build the rust CRT and
 # whisper.cpp with the static runtime so the linker agrees.
-$env:RUSTFLAGS = "-C target-feature=+crt-static"
+# remap-path-prefix keeps local usernames/dir layout out of the panic
+# location strings embedded in release binaries.
+$env:RUSTFLAGS = "-C target-feature=+crt-static --remap-path-prefix=$env:USERPROFILE=~ --remap-path-prefix=$repo=."
 
 Write-Host "`n=== Building sidecar (whisper.cpp — first build takes a while) ==="
 Push-Location (Join-Path $repo "sidecar-rust")
