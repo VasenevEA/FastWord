@@ -469,8 +469,8 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let items: [(usize, &str); 3] = [
         (CMD_SHOW_HISTORY, ui.menu_open_history),
-        (CMD_SHOW_SETTINGS, ui.menu_settings),
         (CMD_SHOW_MODELS, ui.menu_models),
+        (CMD_SHOW_SETTINGS, ui.menu_settings),
     ];
     for (id, label) in items {
         let label_w = wide(label);

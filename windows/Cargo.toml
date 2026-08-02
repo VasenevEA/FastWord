@@ -1,6 +1,6 @@
 [package]
 name = "fastword-win"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "FastWord for Windows — local, private, push-to-talk dictation"
 license = "MIT"
@@ -33,6 +33,8 @@ features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_GdiPlus",
     "Win32_System_Diagnostics_Debug",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
