@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -76,6 +77,7 @@ final class AppController: ObservableObject {
             }
         }
         hotkey.start()
+        requestMicrophoneAccessIfNeeded()
         if hotkey.isActive {
             statusText = readyStatusText()
         }
@@ -128,6 +130,28 @@ final class AppController: ObservableObject {
     }
 
     private var cancelToken: UUID?
+
+    private static var micStatusName: String {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "notDetermined"
+        @unknown default: return "unknown"
+        }
+    }
+
+    /// Nothing asked for the microphone; the app relied on the system
+    /// prompting when the audio engine first starts. When that prompt is
+    /// missed or dismissed, every dictation fails with no visible cause, so
+    /// ask up front instead.
+    private func requestMicrophoneAccessIfNeeded() {
+        NSLog("FastWord: microphone %@", AppController.micStatusName)
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else { return }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            NSLog("FastWord: microphone prompt answered: %@", granted ? "granted" : "denied")
+        }
+    }
 
     private func handlePressStart() {
         pressStartedAt = Date()
@@ -246,6 +270,7 @@ final class AppController: ObservableObject {
                 startPreviewTimer()
             }
         } catch {
+            NSLog("FastWord: recorder.start failed: %@", error.localizedDescription)
             let format = NSLocalizedString("status.mic_error", comment: "")
             statusText = String(format: format, error.localizedDescription)
         }

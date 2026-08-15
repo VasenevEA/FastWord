@@ -24,15 +24,26 @@ final class Recorder {
     private var smoothedLevel: Float = 0
     private var configChangeObserver: NSObjectProtocol?
     private var isRecording = false
+    /// Guards against an endless rebuild loop if a device keeps renegotiating.
+    private var rebuildsRemaining = 0
+    private let maxRebuilds = 3
 
     func start() throws {
+        buffer.removeAll(keepingCapacity: true)
+        rebuildsRemaining = maxRebuilds
+        try buildEngine()
+    }
+
+    /// Creates the capture graph against whatever the current default input
+    /// device is. Split out from `start()` so a mid-recording device change can
+    /// re-run it without discarding audio already captured.
+    private func buildEngine() throws {
         // Tear down any leftover engine so the new one is bound to today's
         // default input device. Cheap — AVAudioEngine doesn't allocate hardware
         // until prepare()/start().
         teardownEngine()
         let engine = AVAudioEngine()
         self.engine = engine
-        buffer.removeAll(keepingCapacity: true)
         installConfigChangeObserver(for: engine)
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
@@ -96,6 +107,7 @@ final class Recorder {
         do {
             try engine.start()
             isRecording = true
+            NSLog("FastWord: audio input %.0f Hz, %u ch", inputFormat.sampleRate, inputFormat.channelCount)
         } catch {
             throw RecorderError.engineStart(error.localizedDescription)
         }
@@ -103,9 +115,17 @@ final class Recorder {
 
     /// macOS posts this notification when the input device changes (headphones
     /// plugged / unplugged, USB mic dis/connected, sample-rate change). The
-    /// engine stops itself and any installed taps are torn down. We must not
-    /// pretend to keep recording — propagate to the controller so it can cancel
-    /// cleanly and we'll rebuild the engine on the next start().
+    /// engine stops itself and any installed taps are torn down.
+    ///
+    /// This is not necessarily the user walking away from the microphone. The
+    /// most common trigger is opening the input on a Bluetooth headset, which
+    /// makes macOS switch it from A2DP to HFP and fires a change within
+    /// milliseconds of `engine.start()`. Treating that as "hardware gone" made
+    /// every dictation cancel itself the instant it began.
+    ///
+    /// So: rebuild the graph against the new device and carry on, keeping the
+    /// audio captured so far. Give up only if the rebuild fails or a device
+    /// keeps renegotiating.
     private func installConfigChangeObserver(for engine: AVAudioEngine) {
         if let old = configChangeObserver {
             NotificationCenter.default.removeObserver(old)
@@ -116,6 +136,20 @@ final class Recorder {
             queue: .main
         ) { [weak self] _ in
             guard let self, self.isRecording else { return }
+
+            if rebuildsRemaining > 0 {
+                rebuildsRemaining -= 1
+                do {
+                    try buildEngine()
+                    NSLog("FastWord: audio device changed — engine rebuilt, recording continues")
+                    return
+                } catch {
+                    NSLog("FastWord: audio device changed — rebuild failed: %@", error.localizedDescription)
+                }
+            } else {
+                NSLog("FastWord: audio device changed — rebuild budget exhausted, cancelling")
+            }
+
             self.isRecording = false
             self.teardownEngine()
             self.lock.lock()
