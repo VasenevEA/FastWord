@@ -103,7 +103,7 @@ final class AppController: ObservableObject {
 
     private func readyStatusText() -> String {
         let format = NSLocalizedString("status.ready", comment: "")
-        return String(format: format, AppSettings.hotkey.displayName)
+        return String(format: format, AppSettings.hotkeyBinding.displayName)
     }
 
     func deleteHistoryEntry(_ id: UUID) {
