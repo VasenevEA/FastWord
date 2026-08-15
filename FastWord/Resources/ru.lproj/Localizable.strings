@@ -132,3 +132,46 @@
 "GigaAM model not downloaded yet (~215 MB)" = "Модель GigaAM ещё не скачана (~215 МБ)";
 "GigaAM model installed" = "Модель GigaAM установлена";
 "Retry" = "Повторить";
+
+/* Custom shortcut recorder */
+"hotkey.none" = "Не задана";
+"hotkey.press_keys" = "Нажмите клавиши…";
+"hotkey.record_hint" = "esc — отмена";
+"hotkey.presets" = "Частые модификаторы";
+"hotkey.custom_footer" = "Нажмите на поле и нажмите любые клавиши — один модификатор (⌥R), аккорд (⌃L⌥L) или модификаторы с клавишей (⌃⌥D, F13). Сочетания с обычной клавишей не доходят до приложения, в котором вы печатаете.";
+
+/* Hotkey conflicts */
+"conflict.duplicate" = "Совпадает со второй клавишей FastWord. Задайте разные сочетания.";
+"conflict.reserved" = "macOS обрабатывает %@ раньше любого приложения, до FastWord это сочетание не дойдёт.";
+"conflict.system" = "Совпадает с системным сочетанием macOS: %@. Система может перехватить его первой.";
+"conflict.fn" = "В Системных настройках клавише fn назначено другое действие, поэтому fn может не доходить до FastWord.";
+"conflict.typing_key" = "У %@ нет модификатора, поэтому этот символ перестанет печататься везде, пока FastWord запущен.";
+"conflict.app_switcher" = "переключение приложений";
+"conflict.window_switcher" = "переключение окон";
+"conflict.force_quit" = "Принудительное завершение";
+"conflict.name.generic" = "системное сочетание";
+"conflict.name.spotlight" = "Spotlight";
+"conflict.name.spotlight_finder" = "Поиск Spotlight в Finder";
+"conflict.name.mission_control" = "Mission Control";
+"conflict.name.app_windows" = "Окна программы";
+"conflict.name.previous_input_source" = "Предыдущий источник ввода";
+"conflict.name.next_input_source" = "Следующий источник ввода";
+"conflict.name.screenshot_file" = "Снимок экрана в файл";
+"conflict.name.screenshot_clipboard" = "Снимок экрана в буфер обмена";
+"conflict.name.screenshot_area_file" = "Снимок выбранной области в файл";
+"conflict.name.screenshot_area_clipboard" = "Снимок выбранной области в буфер";
+"conflict.name.screenshot_options" = "Параметры снимка экрана и записи";
+"conflict.name.space_left" = "Переход на рабочее место влево";
+"conflict.name.space_right" = "Переход на рабочее место вправо";
+"conflict.name.help_menu" = "Меню Справка";
+"conflict.name.launchpad" = "Launchpad";
+"conflict.name.notification_center" = "Центр уведомлений";
+"conflict.name.desktop_1" = "Переход к рабочему столу 1";
+"conflict.name.desktop_2" = "Переход к рабочему столу 2";
+"conflict.name.desktop_3" = "Переход к рабочему столу 3";
+"conflict.name.desktop_4" = "Переход к рабочему столу 4";
+
+"hotkey.needs_accessibility" = "Нет разрешения Accessibility, поэтому сочетание с обычной клавишей будет ещё и печатать этот символ.";
+"hotkey.open_accessibility" = "Открыть настройки Accessibility";
+
+"hotkey.reset" = "Сбросить на правый Option (⌥R)";

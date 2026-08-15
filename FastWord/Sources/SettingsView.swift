@@ -2,8 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(SettingsKey.livePreviewEnabled) private var livePreview: Bool = false
-    @AppStorage(SettingsKey.hotkey) private var hotkeyRaw: String = HotkeyChoice.rightOption.rawValue
-    @AppStorage(SettingsKey.hotkeySecondary) private var hotkeySecondaryRaw: String = HotkeyChoice.rightControl.rawValue
+    @AppStorage(SettingsKey.hotkeyBinding) private var hotkeyRaw: String = ""
+    @AppStorage(SettingsKey.hotkeySecondaryBinding) private var hotkeySecondaryRaw: String = ""
     @AppStorage(SettingsKey.hotkeyUseCombo) private var useCombo: Bool = false
     @AppStorage("hotkeyComboMode") private var comboModeRaw: String = HotkeyComboMode.either.rawValue
     @AppStorage(SettingsKey.language) private var languageRaw: String = LanguageChoice.system.rawValue
@@ -14,21 +14,21 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.cleanupEnabled) private var cleanupEnabled: Bool = true
     @State private var languageChanged = false
 
-    private var hotkey: Binding<HotkeyChoice> {
+    private var hotkey: Binding<HotkeyBinding> {
         Binding(
-            get: { HotkeyChoice(rawValue: hotkeyRaw) ?? .rightOption },
+            get: { HotkeyBinding.decode(hotkeyRaw) ?? AppSettings.hotkeyBinding },
             set: { newValue in
-                hotkeyRaw = newValue.rawValue
+                hotkeyRaw = newValue.encoded()
                 NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
             }
         )
     }
 
-    private var hotkeySecondary: Binding<HotkeyChoice> {
+    private var hotkeySecondary: Binding<HotkeyBinding> {
         Binding(
-            get: { HotkeyChoice(rawValue: hotkeySecondaryRaw) ?? .rightControl },
+            get: { HotkeyBinding.decode(hotkeySecondaryRaw) ?? AppSettings.hotkeySecondaryBinding },
             set: { newValue in
-                hotkeySecondaryRaw = newValue.rawValue
+                hotkeySecondaryRaw = newValue.encoded()
                 NotificationCenter.default.post(name: AppSettings.hotkeyChangedNotification, object: nil)
             }
         )
@@ -75,15 +75,79 @@ struct SettingsView: View {
         )
     }
 
+    /// Quick access to the single-modifier hotkeys most people want, so the
+    /// common case stays one click even though any chord is now recordable.
+    private func presetMenu(for target: Binding<HotkeyBinding>) -> some View {
+        Menu {
+            ForEach(HotkeyBinding.presets, id: \.self) { preset in
+                Button(preset.displayName) { target.wrappedValue = preset }
+            }
+            Divider()
+            Button(LocalizedStringKey("hotkey.reset")) { target.wrappedValue = .rightOption }
+        } label: {
+            Image(systemName: "list.bullet")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(LocalizedStringKey("hotkey.presets"))
+    }
+
+    /// A shortcut that clashes with something else fails silently — the keys
+    /// simply never arrive. Say so where the user chose it.
+    private func conflictRow(_ conflict: HotkeyConflict) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: conflict.isBlocking ? "exclamationmark.triangle.fill" : "info.circle")
+                .foregroundStyle(conflict.isBlocking ? .orange : .secondary)
+            Text(conflict.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Without Accessibility the tap can't swallow a bound regular key, so the
+    /// character reaches whatever the user is typing into.
+    private func accessibilityRow() -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(LocalizedStringKey("hotkey.needs_accessibility"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(LocalizedStringKey("hotkey.open_accessibility")) {
+                    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+                    NSWorkspace.shared.open(url)
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private var accessibilityGranted: Bool { AXIsProcessTrusted() }
+
     var body: some View {
         Form {
             Section {
-                Picker(LocalizedStringKey("Hold to dictate"), selection: hotkey) {
-                    ForEach(HotkeyChoice.allCases) { choice in
-                        Text(choice.displayName).tag(choice)
+                LabeledContent(LocalizedStringKey("Hold to dictate")) {
+                    HStack(spacing: 8) {
+                        ShortcutRecorderField(binding: hotkey)
+                        presetMenu(for: hotkey)
                     }
                 }
-                .pickerStyle(.menu)
+
+                if let conflict = HotkeyConflictChecker.conflict(
+                    for: hotkey.wrappedValue,
+                    otherBinding: useCombo ? hotkeySecondary.wrappedValue : nil
+                ) {
+                    conflictRow(conflict)
+                }
+
+                if !accessibilityGranted, hotkey.wrappedValue.keyCode != nil {
+                    accessibilityRow()
+                }
 
                 Toggle(isOn: useComboBinding) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -95,12 +159,19 @@ struct SettingsView: View {
                 }
 
                 if useCombo {
-                    Picker(LocalizedStringKey("Second key"), selection: hotkeySecondary) {
-                        ForEach(HotkeyChoice.allCases) { choice in
-                            Text(choice.displayName).tag(choice)
+                    LabeledContent(LocalizedStringKey("Second key")) {
+                        HStack(spacing: 8) {
+                            ShortcutRecorderField(binding: hotkeySecondary)
+                            presetMenu(for: hotkeySecondary)
                         }
                     }
-                    .pickerStyle(.menu)
+
+                    if let conflict = HotkeyConflictChecker.conflict(
+                        for: hotkeySecondary.wrappedValue,
+                        otherBinding: hotkey.wrappedValue
+                    ) {
+                        conflictRow(conflict)
+                    }
 
                     Picker(LocalizedStringKey("Combo mode"), selection: comboModeBinding) {
                         ForEach(HotkeyComboMode.allCases) { mode in
@@ -112,9 +183,12 @@ struct SettingsView: View {
             } header: {
                 Text(LocalizedStringKey("Hotkey"))
             } footer: {
-                Text(LocalizedStringKey("Hold the chosen key (or combo) to record. Release to transcribe and paste."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey("Hold the chosen key (or combo) to record. Release to transcribe and paste."))
+                    Text(LocalizedStringKey("hotkey.custom_footer"))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {

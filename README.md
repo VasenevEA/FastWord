@@ -88,9 +88,28 @@ After granting, fully quit and relaunch — TCC permissions only apply on a fres
 
 ## Usage
 
-- **Dictate.** Hold the chosen modifier key (default: Right Option ⌥), speak, release. Text is inserted at the cursor and saved to history.
+- **Dictate.** Hold your hotkey (default: Right Option ⌥), speak, release. Text is inserted at the cursor and saved to history.
 - **Cancel.** Press **Escape** during recording or transcription to abort and discard the result.
-- **Settings.** Menu-bar icon → **Settings…** (⌘,) — pick your hotkey, transcription language, idle eviction time, and live preview toggle.
+- **Settings.** Menu-bar icon → **Settings…** (⌘,) — record your hotkey, pick transcription language, idle eviction time, and live preview toggle.
+
+### Custom hotkeys
+
+The hotkey field records whatever you press, so the trigger is not limited to a preset list:
+
+- a single modifier — `⌥R`, `⌃L`, `fn`
+- a chord of modifiers — `⌃L⌥L`, `⇧R⌘R`
+- modifiers plus a regular key — `⌃⌥D`, `⌥Space`
+- a bare key — `F13`, `F18`
+
+Left and right modifiers are distinguished, so `⌥R` never fires from the left ⌥. Click the field, press the combination, and it is saved when you release (or as soon as you hit the non-modifier key). Escape while the field is empty cancels the recording. The `☰` button next to the field still offers the nine common single-modifier presets.
+
+A hotkey that contains a regular key is swallowed while held, so `⌃⌥D` will not also type a `d` into the field you're dictating into. This needs the Accessibility permission — without it, FastWord falls back to a listen-only event tap where modifier-only hotkeys keep working but a regular key still reaches the app underneath.
+
+**Conflicts.** A shortcut that something else already claims fails silently — the keys simply never reach FastWord. Settings guards against that in two ways:
+
+- A warning appears under the field when the recorded shortcut matches an enabled macOS shortcut (read live from `com.apple.symbolichotkeys`, so a remapped Spotlight is detected correctly), is reserved above the event tap (⌘⇥, ⌘\`, ⌥⌘⎋), collides with FastWord's own second key, or is a bare character key that would stop typing. A separate warning appears if Accessibility isn't granted and the shortcut contains a regular key.
+
+**Second key.** Optional. Set it to an alternative trigger (`Either` mode — handy when you switch between keyboards with different modifiers) or to a key that has to be held alongside the first (`Both` mode).
 - **History.** Menu-bar icon → **Show History**. Searchable, click rows to copy or delete.
 - **Quit.** Menu-bar icon → **Quit**.
 

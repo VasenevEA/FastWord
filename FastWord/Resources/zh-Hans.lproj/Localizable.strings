@@ -132,3 +132,46 @@
 "GigaAM model not downloaded yet (~215 MB)" = "GigaAM 模型尚未下载(约 215 MB)";
 "GigaAM model installed" = "GigaAM 模型已安装";
 "Retry" = "重试";
+
+/* Custom shortcut recorder */
+"hotkey.none" = "未设置";
+"hotkey.press_keys" = "请按下按键…";
+"hotkey.record_hint" = "按 esc 取消";
+"hotkey.presets" = "常用修饰键";
+"hotkey.custom_footer" = "点击输入框并按下任意按键 — 单个修饰键(⌥R)、组合修饰键(⌃L⌥L),或修饰键加普通键(⌃⌥D、F13)。包含普通键的快捷键不会传递给您正在输入的应用。";
+
+/* Hotkey conflicts */
+"conflict.duplicate" = "与 FastWord 的另一个按键相同,请设置不同的快捷键。";
+"conflict.reserved" = "macOS 会在任何应用之前处理 %@,FastWord 无法收到它。";
+"conflict.system" = "与 macOS 系统快捷键冲突:%@。系统可能会先截获它。";
+"conflict.fn" = "系统设置 → 键盘 中 fn 键已分配给其他操作,因此 fn 可能无法到达 FastWord。";
+"conflict.typing_key" = "%@ 没有修饰键,FastWord 运行时该字符将无法输入。";
+"conflict.app_switcher" = "应用切换";
+"conflict.window_switcher" = "窗口切换";
+"conflict.force_quit" = "强制退出";
+"conflict.name.generic" = "系统快捷键";
+"conflict.name.spotlight" = "聚焦搜索";
+"conflict.name.spotlight_finder" = "聚焦访达搜索";
+"conflict.name.mission_control" = "调度中心";
+"conflict.name.app_windows" = "应用程序窗口";
+"conflict.name.previous_input_source" = "上一个输入法";
+"conflict.name.next_input_source" = "下一个输入法";
+"conflict.name.screenshot_file" = "截屏并存为文件";
+"conflict.name.screenshot_clipboard" = "截屏并拷贝到剪贴板";
+"conflict.name.screenshot_area_file" = "截取所选区域并存为文件";
+"conflict.name.screenshot_area_clipboard" = "截取所选区域并拷贝到剪贴板";
+"conflict.name.screenshot_options" = "截屏与录制选项";
+"conflict.name.space_left" = "移到左边一个空间";
+"conflict.name.space_right" = "移到右边一个空间";
+"conflict.name.help_menu" = "帮助菜单";
+"conflict.name.launchpad" = "启动台";
+"conflict.name.notification_center" = "通知中心";
+"conflict.name.desktop_1" = "切换到桌面 1";
+"conflict.name.desktop_2" = "切换到桌面 2";
+"conflict.name.desktop_3" = "切换到桌面 3";
+"conflict.name.desktop_4" = "切换到桌面 4";
+
+"hotkey.needs_accessibility" = "未授予辅助功能权限,因此包含普通键的快捷键仍会输入该字符。";
+"hotkey.open_accessibility" = "打开辅助功能设置";
+
+"hotkey.reset" = "重置为右 Option (⌥R)";

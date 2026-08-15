@@ -3,9 +3,13 @@ import Foundation
 
 enum SettingsKey {
     static let livePreviewEnabled = "livePreviewEnabled"
+    /// Legacy (pre-0.7) single-modifier choice, kept only so existing
+    /// installs can be migrated to `hotkeyBinding` on first read.
     static let hotkey = "hotkey"
     static let hotkeySecondary = "hotkeySecondary"
     static let hotkeyUseCombo = "hotkeyUseCombo"
+    static let hotkeyBinding = "hotkeyBindingV2"
+    static let hotkeySecondaryBinding = "hotkeySecondaryBindingV2"
     static let language = "language"
     static let transcriptionLanguage = "transcriptionLanguage"
     static let idleEviction = "idleEviction"
@@ -181,6 +185,9 @@ enum HotkeyComboMode: String, CaseIterable, Identifiable {
     var displayName: String { NSLocalizedString("combo.\(rawValue)", comment: "") }
 }
 
+/// Legacy fixed list of modifier hotkeys, replaced in 0.7 by the freeform
+/// `HotkeyBinding`. Retained so a stored pre-0.7 preference can be read once
+/// and converted; do not add cases.
 enum HotkeyChoice: String, CaseIterable, Identifiable {
     case rightOption
     case leftOption
@@ -239,37 +246,55 @@ enum AppSettings {
     static let hotkeyChangedNotification = Notification.Name("FastWord.hotkeyChanged")
     static let idleEvictionChangedNotification = Notification.Name("FastWord.idleEvictionChanged")
     static let activeModelChangedNotification = Notification.Name("FastWord.activeModelChanged")
+    /// Posted while the Settings window is capturing a new shortcut, so the
+    /// global hotkey doesn't fire dictation on the keys being recorded.
+    static let hotkeyCaptureBeganNotification = Notification.Name("FastWord.hotkeyCaptureBegan")
+    static let hotkeyCaptureEndedNotification = Notification.Name("FastWord.hotkeyCaptureEnded")
 
     static var livePreviewEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: SettingsKey.livePreviewEnabled) }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.livePreviewEnabled) }
     }
 
-    static var hotkey: HotkeyChoice {
-        get {
-            let raw = UserDefaults.standard.string(forKey: SettingsKey.hotkey) ?? ""
-            return HotkeyChoice(rawValue: raw) ?? .rightOption
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.hotkey)
-            NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
-        }
+    /// The trigger the user holds to dictate. Any combination of modifiers,
+    /// optionally plus one regular key.
+    static var hotkeyBinding: HotkeyBinding {
+        get { storedBinding(SettingsKey.hotkeyBinding, legacyKey: SettingsKey.hotkey, fallback: .rightOption) }
+        set { storeBinding(newValue, forKey: SettingsKey.hotkeyBinding) }
     }
 
-    /// Optional second modifier — when `useComboHotkey` is true, both must
-    /// be held down simultaneously to trigger recording.
-    static var hotkeySecondary: HotkeyChoice {
-        get {
-            let raw = UserDefaults.standard.string(forKey: SettingsKey.hotkeySecondary) ?? ""
-            return HotkeyChoice(rawValue: raw) ?? .rightControl
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKey.hotkeySecondary)
-            NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
-        }
+    /// Optional second trigger — `hotkeyComboMode` decides whether it acts as
+    /// an alternative to the primary one or has to be held together with it.
+    static var hotkeySecondaryBinding: HotkeyBinding {
+        get { storedBinding(SettingsKey.hotkeySecondaryBinding, legacyKey: SettingsKey.hotkeySecondary, fallback: .rightControl) }
+        set { storeBinding(newValue, forKey: SettingsKey.hotkeySecondaryBinding) }
     }
 
-    /// When true, the hotkey takes a second modifier into account
+    /// Reads a binding, falling back to the pre-0.7 `HotkeyChoice` preference
+    /// so upgrading users keep the key they configured. The conversion is not
+    /// written back — the legacy key stays untouched until the user saves a
+    /// new binding, which keeps a downgrade harmless.
+    private static func storedBinding(
+        _ key: String, legacyKey: String, fallback: HotkeyBinding
+    ) -> HotkeyBinding {
+        if let json = UserDefaults.standard.string(forKey: key),
+           let binding = HotkeyBinding.decode(json),
+           !binding.isEmpty {
+            return binding
+        }
+        if let raw = UserDefaults.standard.string(forKey: legacyKey),
+           let legacy = HotkeyChoice(rawValue: raw) {
+            return HotkeyBinding(modifierKeyCodes: [legacy.keyCode])
+        }
+        return fallback
+    }
+
+    private static func storeBinding(_ binding: HotkeyBinding, forKey key: String) {
+        UserDefaults.standard.set(binding.encoded(), forKey: key)
+        NotificationCenter.default.post(name: hotkeyChangedNotification, object: nil)
+    }
+
+    /// When true, the hotkey takes a second binding into account
     /// (the meaning of which is controlled by `hotkeyComboMode`).
     static var useComboHotkey: Bool {
         get { UserDefaults.standard.bool(forKey: SettingsKey.hotkeyUseCombo) }

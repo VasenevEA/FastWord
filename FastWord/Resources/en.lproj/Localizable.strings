@@ -131,3 +131,46 @@
 "GigaAM model not downloaded yet (~215 MB)" = "GigaAM model not downloaded yet (~215 MB)";
 "GigaAM model installed" = "GigaAM model installed";
 "Retry" = "Retry";
+
+/* Custom shortcut recorder */
+"hotkey.none" = "Not set";
+"hotkey.press_keys" = "Press keys…";
+"hotkey.record_hint" = "esc to cancel";
+"hotkey.presets" = "Common modifier keys";
+"hotkey.custom_footer" = "Click the field and press any keys — a single modifier (⌥R), a chord (⌃L⌥L), or modifiers plus a key (⌃⌥D, F13). Shortcuts that include a regular key are not passed on to the app you're typing in.";
+
+/* Hotkey conflicts */
+"conflict.duplicate" = "Same as the other FastWord key — set them to different shortcuts.";
+"conflict.reserved" = "macOS handles %@ before any app, so FastWord will never see it.";
+"conflict.system" = "Matches a macOS shortcut: %@. The system may take it first.";
+"conflict.fn" = "System Settings → Keyboard has the fn key assigned to another action, so fn may not reach FastWord.";
+"conflict.typing_key" = "%@ has no modifier, so that character stops typing anywhere while FastWord runs.";
+"conflict.app_switcher" = "app switcher";
+"conflict.window_switcher" = "window switcher";
+"conflict.force_quit" = "Force Quit";
+"conflict.name.generic" = "a system shortcut";
+"conflict.name.spotlight" = "Spotlight";
+"conflict.name.spotlight_finder" = "Spotlight Finder search";
+"conflict.name.mission_control" = "Mission Control";
+"conflict.name.app_windows" = "Application windows";
+"conflict.name.previous_input_source" = "Previous input source";
+"conflict.name.next_input_source" = "Next input source";
+"conflict.name.screenshot_file" = "Screenshot to file";
+"conflict.name.screenshot_clipboard" = "Screenshot to clipboard";
+"conflict.name.screenshot_area_file" = "Screenshot of selection to file";
+"conflict.name.screenshot_area_clipboard" = "Screenshot of selection to clipboard";
+"conflict.name.screenshot_options" = "Screenshot and recording options";
+"conflict.name.space_left" = "Move one space left";
+"conflict.name.space_right" = "Move one space right";
+"conflict.name.help_menu" = "Help menu";
+"conflict.name.launchpad" = "Launchpad";
+"conflict.name.notification_center" = "Notification Center";
+"conflict.name.desktop_1" = "Switch to Desktop 1";
+"conflict.name.desktop_2" = "Switch to Desktop 2";
+"conflict.name.desktop_3" = "Switch to Desktop 3";
+"conflict.name.desktop_4" = "Switch to Desktop 4";
+
+"hotkey.needs_accessibility" = "Accessibility is not granted, so a hotkey with a regular key will also type that character.";
+"hotkey.open_accessibility" = "Open Accessibility settings";
+
+"hotkey.reset" = "Reset to Right Option (⌥R)";
