@@ -55,6 +55,10 @@ final class HUDController {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        // While a window keeps FastWord a regular app it can be hidden (⌥⌘H in
+        // another app). A hideable HUD would then unhide the whole app — and
+        // pop those windows back up — on the next dictation.
+        panel.canHide = false
         panel.contentView = NSHostingView(rootView: HUDView().environmentObject(state))
         window = panel
     }

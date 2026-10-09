@@ -14,6 +14,8 @@ enum SettingsKey {
     static let skipEmpty = "skipEmpty"
     static let cleanupEnabled = "cleanupEnabled"
     static let useGigaAMForRussian = "useGigaAMForRussian"
+    /// Transcribe File window: show per-segment timestamps in the result.
+    static let transcriptTimestamps = "transcriptTimestamps"
 }
 
 /// How FastWord should treat background audio when the user starts dictating.

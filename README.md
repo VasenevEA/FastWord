@@ -92,7 +92,18 @@ After granting, fully quit and relaunch — TCC permissions only apply on a fres
 - **Cancel.** Press **Escape** during recording or transcription to abort and discard the result.
 - **Settings.** Menu-bar icon → **Settings…** (⌘,) — pick your hotkey, transcription language, idle eviction time, and live preview toggle.
 - **History.** Menu-bar icon → **Show History**. Searchable, click rows to copy or delete.
+- **Transcribe a file.** Menu-bar icon → **Transcribe File…** — see [below](#transcribe-files).
 - **Quit.** Menu-bar icon → **Quit**.
+
+## Transcribe files
+
+Menu-bar icon → **Transcribe File…** opens a window where you drop an audio or video file of any length — a meeting recording, a lecture, a podcast, a voice note — and get the full text back with timestamps.
+
+- **Formats.** Anything macOS can play: MP3, M4A/AAC, WAV, AIFF, FLAC, CAF, MP4, MOV… With [ffmpeg](https://ffmpeg.org) installed (`brew install ffmpeg`) also OGG/Opus (Telegram voice notes), WebM, MKV and more. For video files only the audio track is used.
+- **Engine.** Uses the model selected in Settings. With Whisper you can pick the language per file (or auto-detect); GigaAM v3 splits the recording at pauses and handles Russian.
+- **Result.** Copy the text, or export it as plain text, SRT or WebVTT subtitles, or Markdown with timestamped paragraphs. The text is also saved to History.
+- **Dictation keeps working.** Each file job runs in its own sidecar process, so push-to-talk stays instant while it runs. Progress and a time estimate show in the window and in the FastWord menu; you can close the window and the job carries on — the menu then says when it's done and reopens the result. Cancel stops it immediately.
+- **Local, like everything else.** The file is decoded to a temporary 16 kHz copy (~230 MB per hour of audio, deleted when the job ends) and never leaves your Mac.
 
 ## Configuration
 
@@ -119,6 +130,7 @@ Most things are in **Settings**, but the sidecar still honours these env vars:
 ```
 
 - **Swift app** captures 16 kHz mono Float32 PCM via `AVAudioEngine`, base64-encodes it, and sends a JSON request to the sidecar's stdin.
+- **Files** take the `transcribe_file` path instead: the app decodes the file (AVFoundation, or ffmpeg when present) to a temporary raw 16 kHz PCM file and sends its path; the sidecar streams progress lines and answers with timestamped segments.
 - **Rust sidecar** is a single ~1.5 MB binary that wraps `whisper.cpp` (with the Metal backend) via the `whisper-rs` crate. It keeps the model in RAM between requests and evicts on idle.
 - **Insertion path** prefers Accessibility (`kAXSelectedTextAttribute`) so your clipboard isn't touched. Falls back to clipboard + Cmd+V (with full clipboard snapshot/restore) for inputs that don't expose AX.
 - History lives in SQLite at `~/.fastword/history.sqlite`.

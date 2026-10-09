@@ -5,7 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller: AppController = MainActor.assumeIsolated { AppController() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        MainActor.assumeIsolated { controller.start() }
+        MainActor.assumeIsolated {
+            controller.start()
+            DockPresence.start()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -17,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppController: ObservableObject {
     @Published var statusText: String = NSLocalizedString("Idle", comment: "")
     @Published var history: [HistoryEntry] = []
+    /// "Transcribe File" jobs. They run on their own sidecar process, so
+    /// dictation below never waits for them.
+    let fileTranscriber = FileTranscriber()
 
     private let recorder = Recorder()
     private let sidecar = SidecarClient()
@@ -43,6 +49,11 @@ final class AppController: ObservableObject {
     func start() {
         Migrations.runIfNeeded()
         AppSettings.initializeTranscriptionLanguageIfNeeded()
+        AudioFileDecoder.removeLeftoverTempFiles()
+        fileTranscriber.refreshDefaultLanguage()
+        fileTranscriber.onFinished = { [weak self] transcript in
+            self?.addHistoryEntry(transcript.plainText)
+        }
         history = store.loadAll()
         sidecar.onCrash = { [weak self] summary in
             // Surface the head of the failure to the user via the menu.
@@ -116,6 +127,14 @@ final class AppController: ObservableObject {
         history.removeAll()
     }
 
+    private func addHistoryEntry(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let entry = HistoryEntry(id: UUID(), text: trimmed, createdAt: Date())
+        store.insert(entry)
+        history.insert(entry, at: 0)
+    }
+
     func copyEntryToClipboard(_ text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -123,6 +142,9 @@ final class AppController: ObservableObject {
     }
 
     func stop() {
+        // Kill a running file job's sidecar too; left alone it would keep
+        // transcribing for nobody after we quit.
+        fileTranscriber.cancel()
         sidecar.stop()
         hotkey.stop()
     }
@@ -342,9 +364,7 @@ final class AppController: ObservableObject {
             statusText = NSLocalizedString("Empty result", comment: "")
             return
         }
-        let entry = HistoryEntry(id: UUID(), text: trimmed, createdAt: Date())
-        store.insert(entry)
-        history.insert(entry, at: 0)
+        addHistoryEntry(trimmed)
         Pasteboard.copyAndPaste(trimmed)
         statusText = NSLocalizedString("Done", comment: "")
     }

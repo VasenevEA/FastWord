@@ -76,7 +76,10 @@ struct HistoryView: View {
                 pendingDelete = nil
             }
         } message: { entry in
-            Text(entry.text).lineLimit(3)
+            // Alerts ignore lineLimit (NSAlert shows all of it), and a file
+            // transcript runs to tens of thousands of characters — enough to
+            // push the buttons off the screen.
+            Text(entry.text.count > 200 ? String(entry.text.prefix(200)) + "…" : entry.text)
         }
         .alert(
             LocalizedStringKey("Delete all transcriptions?"),
@@ -113,7 +116,7 @@ struct EntryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(justCopied
                      ? NSLocalizedString("Copied", comment: "")
-                     : entry.text)
+                     : preview)
                     .lineLimit(3)
                     // textSelection is incompatible with .onTapGesture on the
                     // whole row — drag-to-select would swallow the tap. We
@@ -136,6 +139,14 @@ struct EntryRow: View {
             copy()
         }
         .help(LocalizedStringKey("Click to copy"))
+    }
+
+    /// File transcripts keep their paragraph breaks (Copy returns them). In
+    /// the three-line preview a blank line would waste a line and swallow
+    /// the "…" that tells the text goes on.
+    private var preview: String {
+        guard entry.text.contains(where: \.isNewline) else { return entry.text }
+        return TranscriptExport.joinSegments(entry.text.split(whereSeparator: \.isNewline).map(String.init))
     }
 
     @ViewBuilder
