@@ -16,6 +16,8 @@ enum SettingsKey {
     static let useGigaAMForRussian = "useGigaAMForRussian"
     /// Transcribe File window: show per-segment timestamps in the result.
     static let transcriptTimestamps = "transcriptTimestamps"
+    /// Transcribe File window: Speakers picker, "off" or "auto".
+    static let transcriptSpeakers = "transcriptSpeakers"
 }
 
 /// How FastWord should treat background audio when the user starts dictating.
@@ -359,6 +361,22 @@ enum AppSettings {
             return UserDefaults.standard.bool(forKey: SettingsKey.cleanupEnabled)
         }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKey.cleanupEnabled) }
+    }
+
+    /// The Speakers picker of Transcribe File, as remembered across
+    /// launches: Off or Auto only. A new file dropped on a finished
+    /// transcript starts right away, without showing the picker, so a
+    /// remembered "2" would quietly force a four-person meeting into two
+    /// speakers. An exact count lasts until the app quits.
+    static var transcriptSpeakers: SpeakerMode {
+        get { UserDefaults.standard.string(forKey: SettingsKey.transcriptSpeakers) == "auto" ? .auto : .off }
+        set {
+            switch newValue {
+            case .off: UserDefaults.standard.set("off", forKey: SettingsKey.transcriptSpeakers)
+            case .auto: UserDefaults.standard.set("auto", forKey: SettingsKey.transcriptSpeakers)
+            case .exact: break
+            }
+        }
     }
 
     static var idleEviction: IdleEvictionChoice {

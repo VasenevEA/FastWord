@@ -30,6 +30,10 @@ final class AppController: ObservableObject {
     private let hud = HUDController()
     private let store = HistoryStore()
 
+    /// The History entry of the last file transcript, so renaming its
+    /// speakers rewrites that entry instead of adding another.
+    private var fileHistoryEntry: (document: Date, id: UUID)?
+
     private var isRecording = false
     private var pressStartedAt: Date?
     private let minHoldDuration: TimeInterval = 0.5
@@ -52,7 +56,11 @@ final class AppController: ObservableObject {
         AudioFileDecoder.removeLeftoverTempFiles()
         fileTranscriber.refreshDefaultLanguage()
         fileTranscriber.onFinished = { [weak self] transcript in
-            self?.addHistoryEntry(transcript.plainText)
+            guard let self else { return }
+            fileHistoryEntry = addHistoryEntry(transcript.plainText).map { (transcript.createdAt, $0) }
+        }
+        fileTranscriber.onLabelsChanged = { [weak self] transcript in
+            self?.updateFileHistoryEntry(transcript)
         }
         history = store.loadAll()
         sidecar.onCrash = { [weak self] summary in
@@ -127,12 +135,23 @@ final class AppController: ObservableObject {
         history.removeAll()
     }
 
-    private func addHistoryEntry(_ text: String) {
+    @discardableResult
+    private func addHistoryEntry(_ text: String) -> UUID? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
         let entry = HistoryEntry(id: UUID(), text: trimmed, createdAt: Date())
         store.insert(entry)
         history.insert(entry, at: 0)
+        return entry.id
+    }
+
+    private func updateFileHistoryEntry(_ transcript: FileTranscript) {
+        let text = transcript.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An entry deleted from History meanwhile stays deleted.
+        guard let entry = fileHistoryEntry, entry.document == transcript.createdAt, !text.isEmpty,
+              let index = history.firstIndex(where: { $0.id == entry.id }) else { return }
+        store.updateText(entry.id, text: text)
+        history[index] = HistoryEntry(id: entry.id, text: text, createdAt: history[index].createdAt)
     }
 
     func copyEntryToClipboard(_ text: String) {

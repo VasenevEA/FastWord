@@ -23,7 +23,7 @@ struct TranscribeFileView: View {
         switch transcriber.phase {
         case .idle:
             DropZoneView(dropTargeted: dropTargeted)
-        case .decoding, .loadingModel, .transcribing:
+        case .decoding, .downloadingModels, .loadingModel, .transcribing:
             ProgressPhaseView()
         case .finished:
             if let result = transcriber.result {
@@ -69,51 +69,86 @@ private struct DropZoneView: View {
     @EnvironmentObject var transcriber: FileTranscriber
     @Environment(\.openWindow) private var openWindow
     @AppStorage(SettingsKey.activeModel) private var activeModel: String = ""
+    @ObservedObject private var speakerModels = DiarizationInstaller.shared
     let dropTargeted: Bool
     @State private var importing = false
 
     var body: some View {
         VStack(spacing: 14) {
             zone
-            HStack(spacing: 12) {
-                Picker(LocalizedStringKey("Language"), selection: language) {
-                    ForEach(TranscriptionLanguage.all) { lang in
-                        Text(lang.code.isEmpty ? NSLocalizedString("Auto-detect", comment: "") : lang.name)
-                            .tag(lang.code)
+            // The model link beside the pickers when there's room for it on
+            // two lines, otherwise below them: squeezed in, Russian at the
+            // minimum window width cut the model name in half.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    pickers
+                    Spacer(minLength: 8)
+                    modelLink
+                        .frame(maxWidth: 220, alignment: .trailing)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        pickers
                     }
+                    modelLink
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .disabled(gigaAMActive)
-                .help(gigaAMActive
-                      ? LocalizedStringKey("GigaAM only recognizes Russian.")
-                      : LocalizedStringKey("Language spoken in the file. Picking it explicitly is faster and more accurate than auto-detect."))
-
-                Spacer(minLength: 8)
-
-                Button {
-                    openWindow(id: "settings")
-                    NSApp.activate(ignoringOtherApps: true)
-                } label: {
-                    // Wraps rather than truncates: in Russian at the minimum
-                    // window width one line would cut the model name in half.
-                    Text(String(format: NSLocalizedString("Model: %@ — change in Settings", comment: ""),
-                                modelName))
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .buttonStyle(.link)
-                .font(.caption)
+            }
+            if transcriber.speakerMode.isOn, speakerModels.state != .installed {
+                SpeakerModelsRow(installer: speakerModels)
             }
         }
         .padding(20)
+        .onAppear { speakerModels.refresh() }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: AudioFileDecoder.supportedContentTypes) { result in
             if case .success(let url) = result {
                 transcriber.start(url: url)
             }
         }
+    }
+
+    @ViewBuilder
+    private var pickers: some View {
+        Picker(LocalizedStringKey("Language"), selection: language) {
+            ForEach(TranscriptionLanguage.all) { lang in
+                Text(lang.code.isEmpty ? NSLocalizedString("Auto-detect", comment: "") : lang.name)
+                    .tag(lang.code)
+            }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .disabled(gigaAMActive)
+        .help(gigaAMActive
+              ? LocalizedStringKey("GigaAM only recognizes Russian.")
+              : LocalizedStringKey("Language spoken in the file. Picking it explicitly is faster and more accurate than auto-detect."))
+
+        Picker(LocalizedStringKey("Speakers"), selection: speakerMode) {
+            Text(SpeakerMode.off.displayName).tag(SpeakerMode.off)
+            Text(SpeakerMode.auto.displayName).tag(SpeakerMode.auto)
+            Divider()
+            ForEach(Array(SpeakerMode.exactCounts), id: \.self) { count in
+                Text(SpeakerMode.exact(count).displayName).tag(SpeakerMode.exact(count))
+            }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help(LocalizedStringKey("speakers.help"))
+    }
+
+    private var modelLink: some View {
+        Button {
+            openWindow(id: "settings")
+            NSApp.activate(ignoringOtherApps: true)
+        } label: {
+            Text(String(format: NSLocalizedString("Model: %@ — change in Settings", comment: ""),
+                        modelName))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(.link)
+        .font(.caption)
     }
 
     private var zone: some View {
@@ -170,6 +205,64 @@ private struct DropZoneView: View {
             set: { transcriber.setLanguage($0) }
         )
     }
+
+    private var speakerMode: Binding<SpeakerMode> {
+        Binding(
+            get: { transcriber.speakerMode },
+            set: { transcriber.setSpeakerMode($0) }
+        )
+    }
+}
+
+/// Under the pickers while Speakers is on and its models aren't there yet.
+/// A file dropped meanwhile waits for the download (FileTranscriber).
+private struct SpeakerModelsRow: View {
+    @ObservedObject var installer: DiarizationInstaller
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch installer.state {
+            case .notInstalled, .installed:
+                Image(systemName: "person.2.wave.2")
+                    .foregroundStyle(.secondary)
+                Text(LocalizedStringKey("Speaker detection needs a one-time 33 MB download."))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(LocalizedStringKey("Download")) { installer.startDownload() }
+                    .controlSize(.small)
+            case .downloading(let progress):
+                Text(LocalizedStringKey("Downloading speaker detection models…"))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 110)
+                Text(FileTranscriber.percent(progress))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 34, alignment: .trailing)
+                Button(LocalizedStringKey("Cancel")) { installer.cancel() }
+                    .controlSize(.small)
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(String(format: NSLocalizedString("Couldn't download the speaker detection models: %@", comment: ""), message))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(LocalizedStringKey("Retry")) { installer.startDownload() }
+                    .controlSize(.small)
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+    }
 }
 
 // MARK: - Busy
@@ -188,8 +281,8 @@ private struct ProgressPhaseView: View {
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let duration = transcriber.sourceDuration {
-                    Text(TranscriptExport.clock(duration, withHours: false))
+                if !subtitle.isEmpty {
+                    Text(subtitle)
                         .font(.subheadline)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -233,9 +326,24 @@ private struct ProgressPhaseView: View {
         return type.conforms(to: .movie)
     }
 
+    /// Duration, and the job's Speakers choice — the picker is out of
+    /// sight now, and a dropped file may have started without showing it.
+    private var subtitle: String {
+        var parts: [String] = []
+        if let duration = transcriber.sourceDuration {
+            parts.append(TranscriptExport.clock(duration, withHours: false))
+        }
+        if transcriber.jobSpeakerMode.isOn {
+            let format = NSLocalizedString("Speakers: %@", comment: "")
+            parts.append(String(format: format, transcriber.jobSpeakerMode.displayName))
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private var progress: Double? {
         switch transcriber.phase {
         case .decoding(let p): return p
+        case .downloadingModels(let p): return p
         case .transcribing(let p): return p
         default: return nil
         }
@@ -244,8 +352,12 @@ private struct ProgressPhaseView: View {
     private var phaseLabel: String {
         switch transcriber.phase {
         case .decoding: return NSLocalizedString("Decoding audio…", comment: "")
+        case .downloadingModels: return NSLocalizedString("Downloading speaker detection models…", comment: "")
         case .loadingModel: return NSLocalizedString("Loading model…", comment: "")
-        default: return NSLocalizedString("Transcribing…", comment: "")
+        default:
+            return transcriber.jobSpeakerMode.isOn
+                ? NSLocalizedString("Transcribing and detecting speakers…", comment: "")
+                : NSLocalizedString("Transcribing…", comment: "")
         }
     }
 
@@ -281,7 +393,7 @@ private struct ResultView: View {
             } else {
                 TranscriptTextView(
                     documentID: transcript.createdAt,
-                    variant: showTimestamps,
+                    variant: TextVariant(timestamps: showTimestamps, labels: transcript.labels),
                     makeText: { [transcript, showTimestamps] in
                         TranscriptRendering.attributed(transcript, timestamps: showTimestamps)
                     })
@@ -291,23 +403,50 @@ private struct ResultView: View {
         }
     }
 
+    /// What the text view shows: rebuilt when either changes.
+    private struct TextVariant: Hashable {
+        let timestamps: Bool
+        let labels: SpeakerLabels
+    }
+
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(transcript.sourceName)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(metadata)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(transcript.sourceName)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(metadata)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if let warning = transcript.speakerWarning {
+                        // Not an error: the transcript is all there, just
+                        // without names.
+                        Label {
+                            Text(String(format: NSLocalizedString("Couldn't tell the speakers apart: %@", comment: ""),
+                                        SpeakerWarning.reason(warning)))
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                        .help(warning)
+                    }
+                }
+                Spacer(minLength: 8)
+                Toggle(LocalizedStringKey("Timestamps"), isOn: $showTimestamps)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(transcript.segments.isEmpty)
             }
-            Spacer(minLength: 8)
-            Toggle(LocalizedStringKey("Timestamps"), isOn: $showTimestamps)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(transcript.segments.isEmpty)
+            // Kept after the user merged everyone into one speaker: the
+            // strip holds the only Reset, and ⌘Z dies with the window.
+            if transcript.showsSpeakers || (transcript.hasSpeakers && !transcript.labels.isEmpty) {
+                SpeakerStrip(transcript: transcript)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -346,11 +485,18 @@ private struct ResultView: View {
         formatter.allowedUnits = transcript.processingTime >= 3600 ? [.hour, .minute] : [.minute, .second]
         formatter.maximumUnitCount = 2
         let took = formatter.string(from: max(1, transcript.processingTime.rounded())) ?? ""
-        return [
+        var parts = [
             TranscriptExport.clock(transcript.sourceDuration, withHours: false),
             transcript.modelName,
             String(format: NSLocalizedString("processed in %@", comment: ""), took),
-        ].joined(separator: " · ")
+        ]
+        // With one speaker found there are no names to show, but the count
+        // still tells the step ran.
+        if transcript.hasSpeakers {
+            parts.append(String(format: NSLocalizedString("Speakers: %@", comment: ""),
+                                transcript.speakerCount.formatted()))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func copy() {
@@ -389,6 +535,231 @@ private struct ResultView: View {
             panel.beginSheetModal(for: window, completionHandler: save)
         } else {
             panel.begin(completionHandler: save)
+        }
+    }
+}
+
+// MARK: - Speakers
+
+/// One chip per speaker under the header: color, name, talk time. A click
+/// opens the name field and "Merge with".
+private struct SpeakerStrip: View {
+    @EnvironmentObject var transcriber: FileTranscriber
+    @Environment(\.undoManager) private var undoManager
+    let transcript: FileTranscript
+
+    var body: some View {
+        let speakers = transcript.speakers
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(speakers) { speaker in
+                SpeakerChip(
+                    speaker: speaker,
+                    others: speakers.filter { $0.id != speaker.id },
+                    undoManager: undoManager)
+            }
+            if !transcript.labels.isEmpty {
+                Button(LocalizedStringKey("Reset")) {
+                    transcriber.resetSpeakers(undoManager: undoManager)
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+                .padding(.leading, 4)
+                .help(LocalizedStringKey("Undo all renames and merges"))
+            }
+        }
+    }
+}
+
+private struct SpeakerChip: View {
+    @EnvironmentObject var transcriber: FileTranscriber
+    let speaker: SpeakerSummary
+    let others: [SpeakerSummary]
+    /// The transcript window's: a popover is a window of its own, and ⌘Z
+    /// must undo a rename back in the transcript.
+    let undoManager: UndoManager?
+    @State private var editing = false
+
+    var body: some View {
+        Button {
+            editing = true
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color(nsColor: SpeakerPalette.color(for: speaker.id)))
+                    .frame(width: 8, height: 8)
+                Text(speaker.name)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                // Rounded: a lone "uh-huh" is 0.7 s of talk, not "00:00".
+                Text("— \(TranscriptExport.clock(speaker.seconds.rounded(), withHours: false)) (\(speaker.share.formatted(.percent.precision(.fractionLength(0)))))")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.primary.opacity(editing ? 0.13 : 0.06)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(speaker.sample.map { String(format: NSLocalizedString("speaker.sample", comment: ""), $0) } ?? "")
+        .popover(isPresented: $editing, arrowEdge: .bottom) {
+            SpeakerEditor(
+                speaker: speaker,
+                others: others,
+                onRename: { transcriber.renameSpeaker(speaker.id, to: $0, undoManager: undoManager) },
+                onMerge: { transcriber.mergeSpeaker(speaker.id, into: $0, undoManager: undoManager) },
+                onDone: { editing = false })
+        }
+        .accessibilityLabel(speaker.name)
+    }
+}
+
+/// The chip's popover: rename, or merge into another speaker. A name is
+/// applied on Return or when the popover closes.
+struct SpeakerEditor: View {
+    let speaker: SpeakerSummary
+    let others: [SpeakerSummary]
+    let onRename: (String) -> Void
+    let onMerge: (Int) -> Void
+    let onDone: () -> Void
+
+    @State private var draft: String
+    @State private var finished = false
+    @FocusState private var nameFocused: Bool
+    private let original: String
+
+    init(speaker: SpeakerSummary, others: [SpeakerSummary],
+         onRename: @escaping (String) -> Void, onMerge: @escaping (Int) -> Void, onDone: @escaping () -> Void) {
+        self.speaker = speaker
+        self.others = others
+        self.onRename = onRename
+        self.onMerge = onMerge
+        self.onDone = onDone
+        // A default name stays a placeholder, so typing replaces it.
+        original = speaker.name == SpeakerLabels.defaultName(speaker.id) ? "" : speaker.name
+        _draft = State(initialValue: original)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(LocalizedStringKey("Name"), text: $draft,
+                      prompt: Text(SpeakerLabels.defaultName(speaker.id)))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 230)
+                .focused($nameFocused)
+                .onSubmit {
+                    commit()
+                    onDone()
+                }
+            if let match = sameName {
+                // Two speakers with one name are usually one person split in two.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(format: NSLocalizedString("“%@” is already another speaker's name.", comment: ""), match.name))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(String(format: NSLocalizedString("Merge with %@", comment: ""), match.name)) {
+                        merge(into: match.id)
+                    }
+                    .controlSize(.small)
+                }
+                .frame(width: 230, alignment: .leading)
+            }
+            if !others.isEmpty {
+                Divider()
+                Menu {
+                    ForEach(others) { other in
+                        Button(other.name) { merge(into: other.id) }
+                    }
+                } label: {
+                    Text(LocalizedStringKey("Merge with"))
+                }
+                .fixedSize()
+                .help(LocalizedStringKey("Move all of this speaker's lines to another speaker"))
+            }
+        }
+        .padding(14)
+        .onAppear {
+            // Fresh each time the popover opens, whatever SwiftUI kept.
+            draft = original
+            finished = false
+            nameFocused = true
+        }
+        .onDisappear(perform: commit)
+    }
+
+    private var cleanedDraft: String { SpeakerLabels.clean(draft) }
+
+    private var sameName: SpeakerSummary? {
+        let name = cleanedDraft
+        guard !name.isEmpty else { return nil }
+        return others.first { $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+    }
+
+    private func commit() {
+        guard !finished else { return }
+        finished = true
+        if cleanedDraft != original { onRename(cleanedDraft) }
+    }
+
+    /// Without the rename: once merged, a name typed here would land on
+    /// the speaker merged into.
+    private func merge(into target: Int) {
+        finished = true
+        onMerge(target)
+        onDone()
+    }
+}
+
+/// Lays its views out left to right, wrapping onto new lines, each line
+/// centered vertically.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    private func lines(_ subviews: Subviews, width: CGFloat) -> [[(index: Int, size: CGSize)]] {
+        var lines: [[(index: Int, size: CGSize)]] = [[]]
+        var x: CGFloat = 0
+        for (index, view) in subviews.enumerated() {
+            var size = view.sizeThatFits(.unspecified)
+            size.width = min(size.width, width)
+            if x > 0, x + size.width > width {
+                lines.append([])
+                x = 0
+            }
+            lines[lines.count - 1].append((index, size))
+            x += size.width + spacing
+        }
+        return lines
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let lines = lines(subviews, width: width)
+        let height = lines.reduce(0) { $0 + ($1.map(\.size.height).max() ?? 0) }
+            + lineSpacing * CGFloat(max(0, lines.count - 1))
+        let widest = lines.map { line in
+            line.reduce(0) { $0 + $1.size.width } + spacing * CGFloat(max(0, line.count - 1))
+        }.max() ?? 0
+        // Every line fits in `widest`, so placing in it wraps the same way.
+        return CGSize(width: widest, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in lines(subviews, width: bounds.width) {
+            let height = line.map(\.size.height).max() ?? 0
+            var x = bounds.minX
+            for item in line {
+                subviews[item.index].place(
+                    at: CGPoint(x: x, y: y + (height - item.size.height) / 2),
+                    proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += height + lineSpacing
         }
     }
 }
@@ -453,11 +824,13 @@ private struct DropAgainOverlay: View {
 /// Builds what the transcript view shows (and Copy puts on the clipboard).
 enum TranscriptRendering {
     private static let bodyFont = NSFont.systemFont(ofSize: 14)
+    private static let nameFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
     private static let stampFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
 
     /// Timestamps mode: one line per segment, stamp in a hanging-indent
     /// column; a blank line where the speaker paused. Otherwise the same
-    /// paragraphs as the TXT export.
+    /// paragraphs as the TXT export. With speakers, each turn starts with
+    /// the speaker's name in their color, after the stamp if there is one.
     static func attributed(_ transcript: FileTranscript, timestamps: Bool) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.15
@@ -466,8 +839,28 @@ enum TranscriptRendering {
             .foregroundColor: NSColor.textColor,
             .paragraphStyle: paragraph,
         ]
-        guard timestamps else {
+        guard timestamps || transcript.showsSpeakers else {
             return NSAttributedString(string: transcript.plainText, attributes: body)
+        }
+        func name(_ para: TranscriptExport.Paragraph, style: NSParagraphStyle) -> NSAttributedString? {
+            guard let name = para.turnName, let speaker = para.speaker else { return nil }
+            let out = NSMutableAttributedString(string: "\(name):", attributes: [
+                .font: nameFont,
+                .foregroundColor: SpeakerPalette.color(for: speaker),
+                .paragraphStyle: style,
+            ])
+            out.append(NSAttributedString(string: " ", attributes: [.font: bodyFont, .paragraphStyle: style]))
+            return out
+        }
+        guard timestamps else {
+            let out = NSMutableAttributedString()
+            for (index, para) in TranscriptExport.paragraphs(transcript).enumerated() {
+                if index > 0 { out.append(NSAttributedString(string: "\n\n", attributes: body)) }
+                if let name = name(para, style: paragraph) { out.append(name) }
+                out.append(NSAttributedString(
+                    string: TranscriptExport.joinSegments(para.segments.map(\.text)), attributes: body))
+            }
+            return out
         }
 
         let withHours = transcript.sourceDuration >= 3600
@@ -486,11 +879,12 @@ enum TranscriptRendering {
         line[.paragraphStyle] = hanging
 
         let out = NSMutableAttributedString()
-        for (index, para) in TranscriptExport.paragraphs(transcript.segments).enumerated() {
+        for (index, para) in TranscriptExport.paragraphs(transcript).enumerated() {
             if index > 0 { out.append(NSAttributedString(string: "\n", attributes: line)) }
-            for seg in para {
+            for (position, seg) in para.segments.enumerated() {
                 out.append(NSAttributedString(
                     string: TranscriptExport.clock(seg.start, withHours: withHours) + "\t", attributes: stamp))
+                if position == 0, let name = name(para, style: hanging) { out.append(name) }
                 out.append(NSAttributedString(string: seg.text + "\n", attributes: line))
             }
         }
@@ -502,10 +896,13 @@ enum TranscriptRendering {
     static func plain(_ transcript: FileTranscript, timestamps: Bool) -> String {
         guard timestamps else { return transcript.plainText }
         let withHours = transcript.sourceDuration >= 3600
-        return TranscriptExport.paragraphs(transcript.segments)
+        return TranscriptExport.paragraphs(transcript)
             .map { para in
-                para.map { "[\(TranscriptExport.clock($0.start, withHours: withHours))] \($0.text)" }
-                    .joined(separator: "\n")
+                para.segments.enumerated().map { position, seg in
+                    let name = position == 0 ? TranscriptExport.namePrefix(para) : ""
+                    return "[\(TranscriptExport.clock(seg.start, withHours: withHours))] \(name)\(seg.text)"
+                }
+                .joined(separator: "\n")
             }
             .joined(separator: "\n\n")
     }
@@ -515,15 +912,15 @@ enum TranscriptRendering {
 /// characters — far beyond what a SwiftUI Text lays out smoothly.
 struct TranscriptTextView: NSViewRepresentable {
     /// Identifies the transcript; `variant` a way of showing it (timestamps
-    /// on/off). The text is only rebuilt when either changes, so scroll
-    /// position and selection survive unrelated SwiftUI refreshes.
+    /// on/off, speaker names). The text is only rebuilt when either changes,
+    /// so scroll position and selection survive unrelated SwiftUI refreshes.
     let documentID: Date
-    let variant: Bool
+    let variant: AnyHashable
     let makeText: () -> NSAttributedString
 
     final class Coordinator {
         var shownDocument: Date?
-        var shownVariant: Bool?
+        var shownVariant: AnyHashable?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -555,9 +952,9 @@ struct TranscriptTextView: NSViewRepresentable {
         guard coordinator.shownDocument != documentID || coordinator.shownVariant != variant,
               let textView = scroll.documentView as? NSTextView,
               let storage = textView.textStorage else { return }
-        // Toggling timestamps re-flows the text; keep the reader at roughly
-        // the same place instead of jumping back to the top. A different
-        // transcript starts at the top.
+        // Toggling timestamps or renaming a speaker re-flows the text; keep
+        // the reader at roughly the same place instead of jumping back to the
+        // top. A different transcript starts at the top.
         let sameDocument = coordinator.shownDocument == documentID
         let visible = scroll.contentView.bounds
         let oldHeight = textView.frame.height

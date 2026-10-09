@@ -15,6 +15,12 @@
 // one at a time, so the app runs file jobs in a sidecar process of their own
 // (cancelling one by killing it) and dictation never waits behind an hour of
 // audio.
+//
+// With `"diarize": true` a file job also tells the speakers apart: the
+// diarization runs in a child process next to the recognizer (see
+// diarize.rs), each word goes to the speaker talking at the time, and the
+// final line's segments carry a `speaker` and a `speakers` summary — or,
+// when diarization fails, a `warning` and the plain transcript.
 
 use std::cmp::Reverse;
 use std::fs::File;
@@ -28,11 +34,17 @@ use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    DtwMode, DtwModelPreset, DtwParameters, FullParams, SamplingStrategy, WhisperContext,
+    WhisperContextParameters, WhisperState,
 };
 
+mod diarize;
 mod gigaam;
+mod merge;
+mod recluster;
 mod segment;
+
+use merge::{SpeakerTime, Word};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,6 +72,15 @@ struct Request {
     /// on one JSON line — so the client hands it over as a file.
     #[serde(default)]
     audio_path: Option<String>,
+    /// `transcribe_file` only: also find out who spoke when. The app sends
+    /// it (and `num_speakers`) only when the user asked for speakers, so
+    /// other requests stay exactly as they were.
+    #[serde(default)]
+    diarize: Option<bool>,
+    /// With `diarize`: how many speakers there are; 0 or absent = decide
+    /// automatically.
+    #[serde(default)]
+    num_speakers: Option<u32>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -76,6 +97,13 @@ struct Response {
     /// `transcribe_file` result: the transcript with timestamps.
     #[serde(skip_serializing_if = "Option::is_none")]
     segments: Option<Vec<Segment>>,
+    /// Diarized `transcribe_file` result: talk time per speaker id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speakers: Option<Vec<SpeakerTime>>,
+    /// The job succeeded, but not entirely: diarization was asked for and
+    /// failed, so the transcript comes without speakers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
 }
 
 /// One timestamped piece of a file transcript, in seconds from the start of
@@ -85,6 +113,53 @@ struct Segment {
     start: f64,
     end: f64,
     text: String,
+    /// Diarized jobs only: who said it, 0-based by first appearance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    speaker: Option<u32>,
+    /// Word timings, for attributing speakers; never sent to the client.
+    #[serde(skip)]
+    words: Vec<Word>,
+}
+
+impl Segment {
+    fn new(start: f64, end: f64, text: String) -> Self {
+        Self {
+            start,
+            end,
+            text,
+            speaker: None,
+            words: Vec::new(),
+        }
+    }
+}
+
+/// What a `transcribe_file` job produces.
+#[derive(Debug, Default)]
+struct FileTranscript {
+    text: String,
+    segments: Vec<Segment>,
+    speakers: Option<Vec<SpeakerTime>>,
+    warning: Option<String>,
+}
+
+impl FileTranscript {
+    /// `text` is the segments joined with single spaces, so a client that
+    /// only knows the old protocol still gets the whole transcript.
+    fn plain(segments: Vec<Segment>) -> Self {
+        Self {
+            text: joined_text(&segments),
+            segments,
+            ..Default::default()
+        }
+    }
+}
+
+fn joined_text(segments: &[Segment]) -> String {
+    segments
+        .iter()
+        .map(|s| s.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl Response {
@@ -112,18 +187,13 @@ impl Response {
         }
     }
 
-    /// `text` is the segments joined with single spaces, so a client that
-    /// only knows the old protocol still gets the whole transcript.
-    fn transcript(id: String, segments: Vec<Segment>) -> Self {
-        let text = segments
-            .iter()
-            .map(|s| s.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
+    fn transcript(id: String, t: FileTranscript) -> Self {
         Self {
             id,
-            text: Some(text),
-            segments: Some(segments),
+            text: Some(t.text),
+            segments: Some(t.segments),
+            speakers: t.speakers,
+            warning: t.warning,
             ..Default::default()
         }
     }
@@ -184,6 +254,8 @@ fn log(msg: &str) {
 struct ModelHolder {
     model_path: PathBuf,
     ctx: Option<WhisperContext>,
+    /// `ctx` was loaded with DTW token timestamps (word timing).
+    dtw: bool,
     last_used: Instant,
 }
 
@@ -192,11 +264,24 @@ impl ModelHolder {
         Self {
             model_path,
             ctx: None,
+            dtw: false,
             last_used: Instant::now(),
         }
     }
 
-    fn ensure_loaded(&mut self) -> Result<&WhisperContext> {
+    /// Loads the model if needed. `word_times` asks for a context with DTW
+    /// token timestamps, which whisper.cpp only sets up at load time: a
+    /// context loaded without them is reloaded. That happens at most once,
+    /// for a diarized file job — and the app runs file jobs in a sidecar
+    /// process of their own, where nothing is loaded yet. A DTW context
+    /// decodes exactly what a plain one does (the alignment is an extra
+    /// pass after each window), so it serves every later request as is.
+    /// Models without a known alignment-head preset get no DTW.
+    fn ensure_loaded(&mut self, word_times: bool) -> Result<&WhisperContext> {
+        let preset = word_times.then(|| dtw_preset(&self.model_path)).flatten();
+        if preset.is_some() && !self.dtw {
+            self.ctx = None;
+        }
         if self.ctx.is_none() {
             if !self.model_path.exists() {
                 return Err(anyhow!(
@@ -210,11 +295,22 @@ impl ModelHolder {
                 .to_str()
                 .context("non-utf8 model path")?
                 .to_owned();
-            let params = WhisperContextParameters::default();
+            let mut params = WhisperContextParameters::default();
+            if let Some(model_preset) = preset.clone() {
+                params.dtw_parameters(DtwParameters {
+                    mode: DtwMode::ModelPreset { model_preset },
+                    ..Default::default()
+                });
+            }
             let ctx = WhisperContext::new_with_params(&path_str, params)
                 .context("failed to load whisper model")?;
             self.ctx = Some(ctx);
-            log("model loaded");
+            self.dtw = preset.is_some();
+            log(if self.dtw {
+                "model loaded (with word timing)"
+            } else {
+                "model loaded"
+            });
         }
         self.last_used = Instant::now();
         Ok(self.ctx.as_ref().unwrap())
@@ -227,7 +323,7 @@ impl ModelHolder {
         no_speech_thold: f32,
         initial_prompt: Option<&str>,
     ) -> Result<String> {
-        let ctx = self.ensure_loaded()?;
+        let ctx = self.ensure_loaded(false)?;
         let mut state = ctx.create_state().context("create state")?;
 
         let params = whisper_params(language, no_speech_thold, initial_prompt);
@@ -242,16 +338,22 @@ impl ModelHolder {
 
     /// Whole-file transcription with timestamps. whisper.cpp walks the
     /// buffer in 30 s windows by itself; `on_progress` gets its percent.
+    /// With `word_times` the segments carry their words, when the model has
+    /// a DTW preset (see `ensure_loaded`).
     fn transcribe_file(
         &mut self,
         audio: &[f32],
         language: Option<&str>,
         no_speech_thold: f32,
         initial_prompt: Option<&str>,
+        word_times: bool,
         on_progress: impl FnMut(i32) + 'static,
     ) -> Result<Vec<Segment>> {
         check_whisper_length(audio.len() as u64)?;
-        let ctx = self.ensure_loaded()?;
+        let ctx = self.ensure_loaded(word_times)?;
+        let eot = ctx.token_eot();
+        let words_wanted = word_times && self.dtw;
+        let ctx = self.ctx.as_ref().expect("loaded above");
         let mut state = ctx.create_state().context("create state")?;
         let voice = segment::VoicedFrames::analyze(audio, 16_000);
 
@@ -289,11 +391,11 @@ impl ModelHolder {
             }
             let start = (segment.start_timestamp() as f64 / 100.0).clamp(0.0, duration);
             let end = (segment.end_timestamp() as f64 / 100.0).clamp(start, duration);
-            segments.push(Segment {
-                start,
-                end,
-                text: text.to_string(),
-            });
+            let mut seg = Segment::new(start, end, text.to_string());
+            if words_wanted {
+                seg.words = segment_words(&segment, eot, end, text).unwrap_or_default();
+            }
+            segments.push(seg);
         }
         fit_to_voice(&voice, &mut segments);
         segments.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -308,6 +410,69 @@ impl ModelHolder {
             self.ctx = None;
         }
     }
+}
+
+/// whisper.cpp's DTW times run late: the first word of a turn came out
+/// ~0.24 s after its onset (median over the prototype's turns). With the
+/// turbo model, moving words 0.1–0.2 s earlier put the fewest on the wrong
+/// side of a speaker change; 0.4 s was clearly worse.
+const DTW_SHIFT_SECS: f64 = -0.1;
+
+/// The words of one decoded segment from its DTW token times, if they add up
+/// to exactly the segment's text.
+fn segment_words(
+    segment: &whisper_rs::WhisperSegment<'_>,
+    eot: whisper_rs::WhisperTokenId,
+    end: f64,
+    text: &str,
+) -> Option<Vec<Word>> {
+    let mut tokens: Vec<(&[u8], i64)> = Vec::with_capacity(segment.n_tokens().max(0) as usize);
+    for i in 0..segment.n_tokens() {
+        let token = segment.get_token(i)?;
+        let data = token.token_data();
+        // Special tokens (timestamps, end of text, …) are not in the text.
+        if data.id >= eot {
+            continue;
+        }
+        tokens.push((token.to_bytes().ok()?, data.t_dtw));
+    }
+    let (joined, words) = merge::whisper_words(&tokens, DTW_SHIFT_SECS, end)?;
+    (joined == text).then_some(words)
+}
+
+/// The DTW alignment-head preset for a whisper.cpp model file, from its
+/// standard name (`ggml-large-v3-turbo-q5_0.bin` → large-v3-turbo). The
+/// preset must match the model's architecture exactly, so anything else —
+/// distilled or fine-tuned models, renamed files — gets none.
+fn dtw_preset(model_path: &Path) -> Option<DtwModelPreset> {
+    let name = model_path.file_name()?.to_str()?.to_ascii_lowercase();
+    let stem = name.strip_prefix("ggml-")?.strip_suffix(".bin")?;
+    // Quantized variants ("-q5_0", "-q8_0") keep the architecture.
+    let base = match stem.rsplit_once('-') {
+        Some((base, q))
+            if q.len() > 1
+                && q.starts_with('q')
+                && q[1..].starts_with(|c: char| c.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => stem,
+    };
+    Some(match base {
+        "tiny" => DtwModelPreset::Tiny,
+        "tiny.en" => DtwModelPreset::TinyEn,
+        "base" => DtwModelPreset::Base,
+        "base.en" => DtwModelPreset::BaseEn,
+        "small" => DtwModelPreset::Small,
+        "small.en" => DtwModelPreset::SmallEn,
+        "medium" => DtwModelPreset::Medium,
+        "medium.en" => DtwModelPreset::MediumEn,
+        "large-v1" => DtwModelPreset::LargeV1,
+        "large-v2" => DtwModelPreset::LargeV2,
+        "large-v3" => DtwModelPreset::LargeV3,
+        "large-v3-turbo" => DtwModelPreset::LargeV3Turbo,
+        _ => return None,
+    })
 }
 
 /// whisper.cpp takes the sample count as a C `int`. A longer buffer (~37 h
@@ -601,7 +766,7 @@ fn backend_name() -> &'static str {
 /// timestamps; everything else stays the bare text line it always was.
 enum Reply {
     Text(String),
-    Transcript(Vec<Segment>),
+    Transcript(FileTranscript),
 }
 
 fn handle(req: Request, engines: &Arc<Engines>) -> Response {
@@ -660,7 +825,7 @@ fn handle(req: Request, engines: &Arc<Engines>) -> Response {
 
     match res {
         Ok(Reply::Text(text)) => Response::ok(id, text),
-        Ok(Reply::Transcript(segments)) => Response::transcript(id, segments),
+        Ok(Reply::Transcript(t)) => Response::transcript(id, t),
         Err(err) => {
             log(&format!("error: {err:?}"));
             Response::err(id, err.to_string())
@@ -670,7 +835,7 @@ fn handle(req: Request, engines: &Arc<Engines>) -> Response {
 
 /// `transcribe_file`: a long recording from a raw f32 file. Writes progress
 /// lines for `req.id` while the engine runs; the caller writes the final one.
-fn transcribe_file(req: &Request, engines: &Engines) -> Result<Vec<Segment>> {
+fn transcribe_file(req: &Request, engines: &Engines) -> Result<FileTranscript> {
     let path = req
         .audio_path
         .as_deref()
@@ -688,22 +853,46 @@ fn transcribe_file(req: &Request, engines: &Engines) -> Result<Vec<Segment>> {
             check_whisper_length(meta.len() / 4)?;
         }
     }
+    let diarize = req.diarize == Some(true);
     let audio = read_pcm_file(Path::new(path))?;
     if audio.len() < 1600 {
-        return Ok(Vec::new());
+        let mut t = FileTranscript::plain(Vec::new());
+        if diarize {
+            t.speakers = Some(Vec::new());
+        }
+        return Ok(t);
     }
 
     let started = Instant::now();
     let id = req.id.clone();
-    let mut progress = Progress::new(move |p| {
+    let progress = Arc::new(Mutex::new(Overall::new(move |p| {
         // A closed stdout shows up again on the final line, where main()
         // stops on it; nothing useful to do about it mid-job.
         let _ = emit(&Response::progress(id.clone(), p));
+    })));
+
+    // Diarization runs in its own process while this one transcribes.
+    let num_speakers = req.num_speakers.unwrap_or(0);
+    let job: Option<Result<diarize::Job, String>> = (diarize && num_speakers != 1).then(|| {
+        let dir = diarize::model_dir().ok_or("the speaker models are not installed")?;
+        let p = Arc::clone(&progress);
+        diarize::Job::start(path, num_speakers, &dir, move |f| {
+            p.lock().unwrap().diarization(f)
+        })
+        .map_err(|e| format!("could not start the speaker detector: {e}"))
     });
+    if matches!(job, Some(Ok(_))) {
+        progress.lock().unwrap().diarization(Some(0.0));
+    }
+
+    let asr = {
+        let p = Arc::clone(&progress);
+        move |f: f64| p.lock().unwrap().asr(f)
+    };
     let segments = match engine {
-        "gigaam" => engines.with_gigaam(|rec| {
-            rec.transcribe_long(&audio, 16_000, &mut |f| progress.fraction(f))
-        })?,
+        "gigaam" => {
+            engines.with_gigaam(|rec| rec.transcribe_long(&audio, 16_000, &mut |f| asr(f)))?
+        }
         _ => {
             let thold = req.no_speech_thold.unwrap_or(0.6);
             let mut h = engines.whisper.lock().unwrap();
@@ -712,7 +901,8 @@ fn transcribe_file(req: &Request, engines: &Engines) -> Result<Vec<Segment>> {
                 req.language.as_deref(),
                 thold,
                 req.initial_prompt.as_deref(),
-                move |pct| progress.percent(pct.max(0) as u32),
+                diarize,
+                move |pct| asr(pct.max(0) as f64 / 100.0),
             )?
         }
     };
@@ -722,7 +912,99 @@ fn transcribe_file(req: &Request, engines: &Engines) -> Result<Vec<Segment>> {
         started.elapsed().as_secs_f64(),
         segments.len()
     ));
-    Ok(segments)
+
+    // The plain text is the transcript as recognized, before any segment is
+    // cut at a speaker change (a cut inside Chinese text has no space).
+    let mut t = FileTranscript::plain(segments);
+    if !diarize {
+        return Ok(t);
+    }
+    progress.lock().unwrap().asr(1.0);
+    let turns = match job {
+        // One speaker by the user's word: nothing to detect.
+        None => Ok(Vec::new()),
+        Some(Err(reason)) => Err(reason),
+        Some(Ok(job)) => {
+            // Generous: diarization runs at ~0.04 of real time. This only
+            // catches a child that hangs instead of crashing.
+            let audio_secs = audio.len() as f64 / 16_000.0;
+            job.finish(started + Duration::from_secs_f64(120.0 + audio_secs))
+        }
+    };
+    // A child that dies from here on must not add a progress line after
+    // the final one.
+    progress.lock().unwrap().close();
+    match turns {
+        Ok(turns) => {
+            let (segments, speakers) = merge::attribute(std::mem::take(&mut t.segments), &turns);
+            log(&format!(
+                "diarized: {} turns, {} speakers, {} segments, {:.1}s in all",
+                turns.len(),
+                speakers.len(),
+                segments.len(),
+                started.elapsed().as_secs_f64()
+            ));
+            t.segments = segments;
+            t.speakers = Some(speakers);
+        }
+        Err(reason) => {
+            log(&format!("diarization failed: {reason}"));
+            t.warning = Some(format!("Speaker detection failed: {reason}."));
+        }
+    }
+    Ok(t)
+}
+
+/// Progress of a file job: the recognizer's, or with diarization running
+/// alongside, the average of both — so the bar reaches the end when the
+/// slower of the two does. Nothing goes out before the recognizer's first
+/// report, the client's sign that its model is loaded.
+struct Overall<F: FnMut(f64)> {
+    progress: Progress<F>,
+    asr: Option<f64>,
+    /// `None` without diarization, or once it has failed: from then on the
+    /// bar follows the recognizer alone (holding still until it catches up).
+    diarization: Option<f64>,
+    closed: bool,
+}
+
+impl<F: FnMut(f64)> Overall<F> {
+    fn new(sink: F) -> Self {
+        Self {
+            progress: Progress::new(sink),
+            asr: None,
+            diarization: None,
+            closed: false,
+        }
+    }
+
+    /// No more progress lines: the job's result is about to go out.
+    fn close(&mut self) {
+        self.closed = true;
+    }
+
+    fn asr(&mut self, f: f64) {
+        self.asr = Some(f);
+        self.update();
+    }
+
+    /// The child's progress, or `None` when it failed.
+    fn diarization(&mut self, f: Option<f64>) {
+        self.diarization = f;
+        self.update();
+    }
+
+    fn update(&mut self) {
+        let Some(asr) = self.asr.filter(|_| !self.closed) else {
+            return;
+        };
+        match self.diarization {
+            Some(d) => self
+                .progress
+                .fraction((asr.clamp(0.0, 1.0) + d.clamp(0.0, 1.0)) / 2.0),
+            None => self.progress.fraction(asr),
+        }
+    }
 }
 
 fn evict_loop(engines: Arc<Engines>, idle_after: Duration) {
@@ -740,9 +1022,6 @@ fn evict_loop(engines: Arc<Engines>, idle_after: Duration) {
 /// model is still loaded (see main).
 #[cfg(unix)]
 fn exit_with_parent() {
-    extern "C" {
-        fn _exit(status: i32) -> !;
-    }
     let parent = std::os::unix::process::parent_id();
     // Started by launchd/init itself: there is no app to outlive.
     if parent == 1 {
@@ -762,12 +1041,35 @@ fn exit_with_parent() {
             now != parent
         };
         if orphaned {
-            unsafe { _exit(0) };
+            hard_exit(0);
         }
     });
 }
 
+/// Ends the process at once, from any thread, without running exit-time
+/// teardown: static destructors of the native libraries (ggml-metal, ONNX
+/// Runtime) may abort while another thread still uses them.
+fn hard_exit(code: i32) -> ! {
+    #[cfg(unix)]
+    {
+        extern "C" {
+            fn _exit(status: i32) -> !;
+        }
+        unsafe { _exit(code) }
+    }
+    #[cfg(not(unix))]
+    std::process::exit(code)
+}
+
 fn main() -> Result<()> {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == diarize::CHILD_ARG)
+    {
+        #[cfg(unix)]
+        exit_with_parent();
+        diarize::child_main();
+    }
     // Suppress whisper.cpp's own stderr noise once the model is loaded.
     whisper_rs::install_logging_hooks();
 
@@ -970,18 +1272,14 @@ mod tests {
     #[test]
     fn transcript_serializes_text_and_segments() {
         let segments = vec![
-            Segment {
-                start: 0.0,
-                end: 4.2,
-                text: "Hello there.".into(),
-            },
-            Segment {
-                start: 4.5,
-                end: 6.0,
-                text: "Bye.".into(),
-            },
+            Segment::new(0.0, 4.2, "Hello there.".into()),
+            Segment::new(4.5, 6.0, "Bye.".into()),
         ];
-        let json = serde_json::to_string(&Response::transcript("a".into(), segments.clone())).unwrap();
+        let json = serde_json::to_string(&Response::transcript(
+            "a".into(),
+            FileTranscript::plain(segments.clone()),
+        ))
+        .unwrap();
         assert_eq!(
             json,
             r#"{"id":"a","text":"Hello there. Bye.","segments":[{"start":0.0,"end":4.2,"text":"Hello there."},{"start":4.5,"end":6.0,"text":"Bye."}]}"#
@@ -995,7 +1293,11 @@ mod tests {
     #[test]
     fn empty_transcript_keeps_empty_text_and_segments() {
         assert_eq!(
-            serde_json::to_string(&Response::transcript("e".into(), Vec::new())).unwrap(),
+            serde_json::to_string(&Response::transcript(
+                "e".into(),
+                FileTranscript::plain(Vec::new())
+            ))
+            .unwrap(),
             r#"{"id":"e","text":"","segments":[]}"#
         );
     }
@@ -1033,11 +1335,7 @@ mod tests {
     fn fitted(audio: &[f32], times: &[(f64, f64)]) -> Vec<(f64, f64)> {
         let mut segments: Vec<Segment> = times
             .iter()
-            .map(|&(start, end)| Segment {
-                start,
-                end,
-                text: "x".into(),
-            })
+            .map(|&(start, end)| Segment::new(start, end, "x".into()))
             .collect();
         fit_to_voice(&segment::VoicedFrames::analyze(audio, 16_000), &mut segments);
         segments.iter().map(|s| (s.start, s.end)).collect()
@@ -1260,5 +1558,138 @@ mod tests {
         let dir = std::env::temp_dir();
         let err = read_pcm_file(&dir).unwrap_err().to_string();
         assert!(err.contains("not a file"), "{err}");
+    }
+
+    #[test]
+    fn request_parses_diarize_fields() {
+        let req: Request = serde_json::from_str(
+            r#"{"id":"d","cmd":"transcribe_file","audio_path":"/tmp/x.f32","diarize":true,"num_speakers":3}"#,
+        )
+        .unwrap();
+        assert_eq!(req.diarize, Some(true));
+        assert_eq!(req.num_speakers, Some(3));
+        let req: Request = serde_json::from_str(
+            r#"{"id":"d","cmd":"transcribe_file","audio_path":"/x","diarize":true}"#,
+        )
+        .unwrap();
+        assert_eq!(req.num_speakers, None);
+        let req = file_request("p", "/x", "");
+        assert!(req.diarize.is_none() && req.num_speakers.is_none());
+        // A count must be a non-negative integer.
+        assert!(serde_json::from_str::<Request>(
+            r#"{"id":"d","cmd":"transcribe_file","num_speakers":-1}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<Request>(
+            r#"{"id":"d","cmd":"transcribe_file","num_speakers":"2"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn diarized_transcript_serializes_speakers_and_warning() {
+        let mut a = Segment::new(0.0, 2.0, "Hi.".into());
+        a.speaker = Some(0);
+        a.words = vec![Word {
+            start: 0.0,
+            end: 1.0,
+            at: 0,
+        }];
+        let mut b = Segment::new(2.5, 4.0, "Hello.".into());
+        b.speaker = Some(1);
+        let t = FileTranscript {
+            text: "Hi. Hello.".into(),
+            segments: vec![a, b],
+            speakers: Some(vec![
+                SpeakerTime {
+                    id: 0,
+                    seconds: 2.0,
+                },
+                SpeakerTime {
+                    id: 1,
+                    seconds: 1.5,
+                },
+            ]),
+            warning: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&Response::transcript("s".into(), t)).unwrap(),
+            r#"{"id":"s","text":"Hi. Hello.","segments":[{"start":0.0,"end":2.0,"text":"Hi.","speaker":0},{"start":2.5,"end":4.0,"text":"Hello.","speaker":1}],"speakers":[{"id":0,"seconds":2.0},{"id":1,"seconds":1.5}]}"#
+        );
+        let mut t = FileTranscript::plain(vec![Segment::new(0.0, 1.0, "x".into())]);
+        t.warning = Some("Speaker detection failed: boom.".into());
+        assert_eq!(
+            serde_json::to_string(&Response::transcript("w".into(), t)).unwrap(),
+            r#"{"id":"w","text":"x","segments":[{"start":0.0,"end":1.0,"text":"x"}],"warning":"Speaker detection failed: boom."}"#
+        );
+    }
+
+    #[test]
+    fn diarized_tiny_file_has_empty_speakers() {
+        let file = TempFile::with_samples(&vec![0.1; 1000]);
+        let resp = handle(
+            file_request("t", file.path(), r#","diarize":true"#),
+            &dummy_engines(),
+        );
+        assert_eq!(
+            serde_json::to_string(&resp).unwrap(),
+            r#"{"id":"t","text":"","segments":[],"speakers":[]}"#
+        );
+    }
+
+    #[test]
+    fn overall_progress_averages_and_stops_when_closed() {
+        let mut seen = Vec::new();
+        {
+            let mut p = Overall::new(|v| seen.push(v));
+            // Nothing before the recognizer's first report.
+            p.diarization(Some(0.0));
+            p.diarization(Some(0.3));
+            p.asr(0.0);
+            p.asr(0.5);
+            p.diarization(Some(0.9));
+            // Diarization failed: the recognizer alone, never backwards.
+            p.diarization(None);
+            p.asr(0.6);
+            p.asr(0.8);
+            p.close();
+            p.asr(1.0);
+        }
+        assert_eq!(seen, vec![0.15, 0.4, 0.7, 0.8]);
+
+        // Without diarization the recognizer's progress passes through as
+        // before (whole percents, increasing).
+        let mut seen = Vec::new();
+        {
+            let mut p = Overall::new(|v| seen.push(v));
+            for pct in [0, 0, 3, 29, 28, 100] {
+                p.asr(pct as f64 / 100.0);
+            }
+        }
+        assert_eq!(seen, vec![0.0, 0.03, 0.29, 1.0]);
+    }
+
+    #[test]
+    fn dtw_presets_follow_standard_model_names() {
+        let preset = |name: &str| dtw_preset(Path::new(name)).map(|p| format!("{p:?}"));
+        assert_eq!(
+            preset("/m/ggml-large-v3-turbo-q5_0.bin").as_deref(),
+            Some("LargeV3Turbo")
+        );
+        assert_eq!(
+            preset("ggml-large-v3-turbo.bin").as_deref(),
+            Some("LargeV3Turbo")
+        );
+        assert_eq!(preset("ggml-large-v3-q5_0.bin").as_deref(), Some("LargeV3"));
+        assert_eq!(preset("ggml-large-v3.bin").as_deref(), Some("LargeV3"));
+        assert_eq!(preset("ggml-tiny.bin").as_deref(), Some("Tiny"));
+        assert_eq!(preset("ggml-tiny.en-q8_0.bin").as_deref(), Some("TinyEn"));
+        assert_eq!(preset("ggml-medium.en.bin").as_deref(), Some("MediumEn"));
+        assert_eq!(preset("GGML-SMALL.BIN").as_deref(), Some("Small"));
+        // Other architectures or unknown names: no DTW.
+        assert_eq!(preset("ggml-distil-large-v3.bin"), None);
+        assert_eq!(preset("ggml-large.bin"), None);
+        assert_eq!(preset("my-model.bin"), None);
+        assert_eq!(preset("ggml-large-v3-turbo-custom.bin"), None);
     }
 }

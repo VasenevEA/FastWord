@@ -64,6 +64,7 @@ final class SidecarClient {
     private struct Reply {
         let text: String
         let segments: [TranscriptSegment]?
+        var warning: String? = nil
     }
 
     private var process: Process?
@@ -168,6 +169,12 @@ final class SidecarClient {
         let gigaamDir = GigaAMInstaller.installDirectory.path
         if fm.fileExists(atPath: "\(gigaamDir)/model.int8.onnx") {
             env["FASTWORD_GIGAAM_MODEL"] = gigaamDir
+        }
+        // Speaker detection models, downloaded on demand by
+        // DiarizationInstaller. Only read by a `transcribe_file` request that
+        // asks for speakers; without them it still transcribes, with a warning.
+        if DiarizationInstaller.isInstalled {
+            env["FASTWORD_DIARIZATION_MODEL"] = DiarizationInstaller.installDirectory.path
         }
         proc.environment = env
         let stdin = Pipe(); let stdout = Pipe(); let stderr = Pipe()
@@ -352,16 +359,30 @@ final class SidecarClient {
         return try await send(req, id: id).text
     }
 
+    /// A finished `transcribe_file` job.
+    struct FileReply {
+        let text: String
+        /// Each with a `speaker` when speaker detection ran and worked. (The
+        /// reply's `speakers` list only sums these up; the app counts talk
+        /// time from the segments it keeps after cleanup.)
+        let segments: [TranscriptSegment]
+        /// What went wrong on the side — speaker detection failing — without
+        /// costing the transcript.
+        let warning: String?
+    }
+
     /// Transcribes a whole file of raw f32le mono 16 kHz samples. The sidecar
-    /// streams progress (0…1) to `onProgress` on a background queue, then
-    /// answers once with the full text and its timed segments. `engine` must
-    /// be the one this client was launched with.
+    /// streams progress (0…1, overall — speaker detection runs alongside) to
+    /// `onProgress` on a background queue, then answers once with the full
+    /// text and its timed segments. `engine` must be the one this client was
+    /// launched with.
     func transcribeFile(
         pcmPath: String,
         languageCode: String,
         engine: Engine,
+        speakers: SpeakerMode = .off,
         onProgress: @escaping (Double) -> Void
-    ) async throws -> (text: String, segments: [TranscriptSegment]) {
+    ) async throws -> FileReply {
         let id = UUID().uuidString
         var req: [String: Any] = [
             "id": id,
@@ -370,8 +391,19 @@ final class SidecarClient {
             "sample_rate": 16000
         ]
         req.merge(Self.engineOptions(languageCode: languageCode, gigaAM: engine.gigaAM)) { _, new in new }
+        // Sent only when on: the sidecar rejects fields it doesn't know, and
+        // a job without speakers stays exactly the request it always was.
+        switch speakers {
+        case .off:
+            break
+        case .auto:
+            req["diarize"] = true
+        case .exact(let count):
+            req["diarize"] = true
+            req["num_speakers"] = count
+        }
         let reply = try await send(req, id: id, onProgress: onProgress)
-        return (reply.text, reply.segments ?? [])
+        return FileReply(text: reply.text, segments: reply.segments ?? [], warning: reply.warning)
     }
 
     private func send(
@@ -474,14 +506,19 @@ final class SidecarClient {
         if let err = obj["error"] as? String {
             cont.resume(throwing: SidecarError.remote(err))
         } else if let text = obj["text"] as? String {
-            cont.resume(returning: Reply(text: text, segments: Self.parseSegments(obj["segments"])))
+            let warning = (obj["warning"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            cont.resume(returning: Reply(
+                text: text,
+                segments: Self.parseSegments(obj["segments"]),
+                warning: warning?.isEmpty == false ? warning : nil))
         } else {
             cont.resume(throwing: SidecarError.decodeFailed)
         }
     }
 
-    /// `[{"start":0.0,"end":4.2,"text":"…"}, …]` → segments, skipping any
-    /// malformed or empty entry rather than failing the whole transcript.
+    /// `[{"start":0.0,"end":4.2,"text":"…","speaker":0}, …]` → segments,
+    /// skipping any malformed or empty entry rather than failing the whole
+    /// transcript. A missing or invalid speaker just leaves it unlabelled.
     private static func parseSegments(_ value: Any?) -> [TranscriptSegment]? {
         guard let raw = value as? [[String: Any]] else { return nil }
         return raw.compactMap { item in
@@ -489,7 +526,9 @@ final class SidecarClient {
                   let end = (item["end"] as? NSNumber)?.doubleValue,
                   let text = (item["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !text.isEmpty else { return nil }
-            return TranscriptSegment(start: start, end: max(start, end), text: text)
+            let speaker = (item["speaker"] as? NSNumber)?.intValue
+            return TranscriptSegment(start: start, end: max(start, end), text: text,
+                                     speaker: speaker.flatMap { $0 >= 0 ? $0 : nil })
         }
     }
 }

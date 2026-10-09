@@ -3,6 +3,7 @@ import SwiftUI
 struct ModelManagementView: View {
     @StateObject private var downloader = ModelDownloader.shared
     @StateObject private var gigaAM = GigaAMInstaller.shared
+    @StateObject private var speakerModels = DiarizationInstaller.shared
     @AppStorage(SettingsKey.activeModel) private var activeFilename: String = ""
 
     /// The version of ModelStorage status that depends on filesystem state,
@@ -34,6 +35,8 @@ struct ModelManagementView: View {
                 isActive: gigaAMActive,
                 onUse: { AppSettings.activeModelFilename = ModelCatalog.gigaAMSentinel }
             )
+            Divider()
+            DiarizationRow(installer: speakerModels)
         }
         .padding(.vertical, 4)
         .id(refreshTick)
@@ -144,6 +147,75 @@ private struct GigaAMRow: View {
                 .buttonStyle(.borderless)
                 .help(LocalizedStringKey("Delete"))
             }
+        case .failed:
+            Button(LocalizedStringKey("Retry")) { installer.startDownload() }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+    }
+}
+
+/// The speaker detection models: not a speech model to pick, just
+/// downloaded for (or deleted from) the Speakers option of Transcribe File.
+private struct DiarizationRow: View {
+    @ObservedObject var installer: DiarizationInstaller
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(LocalizedStringKey("Speaker detection"))
+                        .font(.system(size: 13, weight: .medium))
+                    if case .installed = installer.state {
+                        // Its own key: the shared one agrees with "model" in
+                        // Russian, and this row stands for two of them.
+                        Text(LocalizedStringKey("speakers.installed"))
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundStyle(.green)
+                            .clipShape(Capsule())
+                    }
+                }
+                Text(LocalizedStringKey("33 MB · pyannote segmentation + 3D-Speaker CAM++. Lets Transcribe File split the text by speaker."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if case .downloading(let progress) = installer.state {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 220)
+                }
+                if case .failed(let msg) = installer.state {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            Spacer(minLength: 0)
+            actions
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .onAppear { installer.refresh() }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        switch installer.state {
+        case .notInstalled:
+            Button(LocalizedStringKey("Download")) { installer.startDownload() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        case .downloading:
+            Button(LocalizedStringKey("Cancel")) { installer.cancel() }
+                .buttonStyle(.borderless)
+        case .installed:
+            Button(action: { installer.uninstall() }) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help(LocalizedStringKey("Delete"))
         case .failed:
             Button(LocalizedStringKey("Retry")) { installer.startDownload() }
                 .buttonStyle(.bordered)

@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use sherpa_onnx::{
     OfflineNemoEncDecCtcModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
+    OfflineRecognizerResult,
 };
 
+use crate::merge::{self, Word};
 use crate::segment;
 use crate::Segment;
 
@@ -29,6 +31,9 @@ const SEGMENT_GAP_SECS: f32 = 1.0;
 /// soft onsets and trailing consonants just under the voiced threshold are
 /// not clipped.
 const VOICED_PAD_SECS: f32 = 0.25;
+/// Time step of GigaAM's CTC output (4x subsampled 10 ms frames): the
+/// resolution of its token timestamps, and the length given to a token.
+const CTC_FRAME_SECS: f64 = 0.04;
 
 pub struct Recognizer {
     inner: OfflineRecognizer,
@@ -75,21 +80,25 @@ impl Recognizer {
     }
 
     pub fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String> {
+        Ok(self.decode(audio, sample_rate)?.text.trim().to_string())
+    }
+
+    fn decode(&self, audio: &[f32], sample_rate: u32) -> Result<OfflineRecognizerResult> {
         let stream = self.inner.create_stream();
         stream.accept_waveform(sample_rate as i32, audio);
         self.inner.decode(&stream);
-        let result = stream
+        stream
             .get_result()
-            .ok_or_else(|| anyhow!("sherpa-onnx returned no result"))?;
-        Ok(result.text.trim().to_string())
+            .ok_or_else(|| anyhow!("sherpa-onnx returned no result"))
     }
 
     /// Long-file path for `transcribe_file`: cut on pauses into chunks,
     /// split each chunk further at pauses of `SEGMENT_GAP_SECS` or more,
-    /// and decode every voiced stretch on its own fresh stream (via
-    /// `transcribe`), time-stamped with its voiced range. Silent chunks and
-    /// long pauses never reach the model. `on_progress` gets the fraction of
-    /// the input processed so far.
+    /// and decode every voiced stretch on its own fresh stream, time-stamped
+    /// with its voiced range. Silent chunks and long pauses never reach the
+    /// model. Segments carry their words, timed by the CTC tokens, for
+    /// speaker attribution. `on_progress` gets the fraction of the input
+    /// processed so far.
     pub fn transcribe_long(
         &self,
         audio: &[f32],
@@ -108,21 +117,32 @@ impl Recognizer {
             for (start, end) in voice.voiced_runs(chunk.voiced_start, chunk.voiced_end, gap) {
                 let from = start.saturating_sub(pad).max(chunk.start);
                 let to = (end + pad).min(chunk.end);
+                let result = self.decode(&audio[from..to], sample_rate)?;
                 // CTC output can carry doubled word separators ("конца  если");
                 // harmless in a dictation paste, ugly in subtitles.
-                let text = self.transcribe(&audio[from..to], sample_rate)?;
-                let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                let text = result.text.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !text.is_empty() {
-                    segments.push(Segment {
-                        start: secs(start),
-                        end: secs(end),
-                        text,
-                    });
+                    let words = words(&result, from as f64 / sample_rate as f64, &text);
+                    let mut seg = Segment::new(secs(start), secs(end), text);
+                    seg.words = words;
+                    segments.push(seg);
                 }
             }
             on_progress(chunk.end as f64 / audio.len() as f64);
         }
         Ok(segments)
+    }
+}
+
+/// The words of a decoded stretch that began `offset` seconds into the
+/// file — empty unless the tokens spell out exactly `text`.
+fn words(result: &OfflineRecognizerResult, offset: f64, text: &str) -> Vec<Word> {
+    let Some(times) = result.timestamps.as_deref() else {
+        return Vec::new();
+    };
+    match merge::ctc_words(&result.tokens, times, offset, CTC_FRAME_SECS) {
+        Some((joined, words)) if joined == text => words,
+        _ => Vec::new(),
     }
 }
 

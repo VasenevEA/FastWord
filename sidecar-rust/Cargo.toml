@@ -24,7 +24,16 @@ serde = { version = "1.0", features = ["derive"] }
 # Official sherpa-onnx Rust bindings — the GigaAM-v3 Russian engine.
 # Statically linked by default; if the prebuilt lib download fails on the
 # build machine the env var SHERPA_ONNX_LIB_DIR can override it.
-sherpa-onnx = "1.13"
+# At least 1.13.8: older releases accept any newer sherpa-onnx-sys, and a
+# fresh resolve picks one whose C structs they no longer match (build
+# error). 1.13.8 also no longer SIGBUSes on our single-cluster
+# diarization repro. Its newer ONNX Runtime (1.28.2, was 1.24.4 in 1.13.2)
+# changes GigaAM output now and then by a word, in dictation and files
+# alike, for better or worse: not byte-identical to 0.6.
+sherpa-onnx = "1.13.8"
+# Its raw C bindings, for the diarization progress callback the safe
+# wrapper lacks. Same version as sherpa-onnx pins, same (static) linking.
+sherpa-onnx-sys = { version = "=1.13.8", default-features = false }
 serde_json = "1.0"
 base64 = "0.22"
 anyhow = "1.0"

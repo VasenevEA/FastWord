@@ -60,6 +60,18 @@ final class HistoryStore {
         return out
     }
 
+    /// Rewrites an entry's text in place — a file transcript after its
+    /// speakers were renamed.
+    func updateText(_ id: UUID, text: String) {
+        let sql = "UPDATE entries SET text = ? WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 2, id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_step(stmt)
+    }
+
     func delete(_ id: UUID) {
         let sql = "DELETE FROM entries WHERE id = ?;"
         var stmt: OpaquePointer?

@@ -6,6 +6,9 @@ struct TranscriptSegment: Codable, Hashable {
     let start: Double
     let end: Double
     let text: String
+    /// Who says it: 0-based, numbered by first appearance. nil when the job
+    /// ran without speaker detection, or it failed.
+    var speaker: Int? = nil
 }
 
 /// A finished "Transcribe File" job: the segments plus the metadata the
@@ -19,6 +22,13 @@ struct FileTranscript {
     let createdAt: Date
     let processingTime: TimeInterval
     let segments: [TranscriptSegment]
+    /// What the Speakers picker asked for.
+    var speakerMode: SpeakerMode = .off
+    /// Why speakers couldn't be told apart, in the engine's words. The
+    /// transcript itself is complete.
+    var speakerWarning: String? = nil
+    /// The user's names and merges over the segments' speaker ids.
+    var labels = SpeakerLabels()
 
     /// Paragraphed text without timestamps — what goes into history and
     /// what the plain-text export writes.
@@ -79,38 +89,53 @@ enum TranscriptExport {
         let start: Int
         let end: Int
         let lines: [String]
+        /// Who speaks it, for the WebVTT voice tag.
+        var voice: String? = nil
+    }
+
+    /// Consecutive segments read as one paragraph, and whose turn it is.
+    struct Paragraph {
+        let segments: [TranscriptSegment]
+        /// The speaker once merges are applied; nil without speaker names.
+        let speaker: Int?
+        /// The speaker's name on the first paragraph of each turn — a run
+        /// of paragraphs by the same speaker — and nil on the rest.
+        let turnName: String?
     }
 
     static func render(_ transcript: FileTranscript, as format: TranscriptExportFormat) -> String {
         switch format {
-        case .txt: return renderText(transcript.segments)
-        case .srt: return renderSRT(transcript.segments)
-        case .vtt: return renderVTT(transcript.segments)
+        case .txt: return renderText(transcript)
+        case .srt: return renderSRT(subtitleCues(transcript))
+        case .vtt: return renderVTT(subtitleCues(transcript))
         case .markdown: return renderMarkdown(transcript)
         }
     }
 
     // MARK: - Formats
 
-    static func renderText(_ segments: [TranscriptSegment]) -> String {
-        paragraphs(segments)
-            .map { joinSegments($0.map(\.text)) }
+    static func renderText(_ transcript: FileTranscript) -> String {
+        paragraphs(transcript)
+            .map { namePrefix($0) + joinSegments($0.segments.map(\.text)) }
             .joined(separator: "\n\n")
     }
 
-    static func renderSRT(_ segments: [TranscriptSegment]) -> String {
-        let cues = subtitleCues(segments).enumerated().map { index, cue in
+    static func renderSRT(_ cues: [SubtitleCue]) -> String {
+        let cues = cues.enumerated().map { index, cue in
             let range = "\(subtitleTimestamp(milliseconds: cue.start, separator: ",")) --> \(subtitleTimestamp(milliseconds: cue.end, separator: ","))"
             return "\(index + 1)\n\(range)\n\(cue.lines.joined(separator: "\n"))"
         }
         return cues.isEmpty ? "" : cues.joined(separator: "\n\n") + "\n"
     }
 
-    static func renderVTT(_ segments: [TranscriptSegment]) -> String {
+    static func renderVTT(_ cues: [SubtitleCue]) -> String {
         var out = "WEBVTT\n"
-        for cue in subtitleCues(segments) {
+        for cue in cues {
             out += "\n\(subtitleTimestamp(milliseconds: cue.start, separator: ".")) --> \(subtitleTimestamp(milliseconds: cue.end, separator: "."))\n"
-            out += cue.lines.map(escapeVTT).joined(separator: "\n") + "\n"
+            // The voice tag is for players and styling (browsers don't show
+            // it); the first cue of a turn also names the speaker in the text.
+            let voice = cue.voice.map { "<v \(escapeVTTAnnotation($0))>" } ?? ""
+            out += voice + cue.lines.map(escapeVTT).joined(separator: "\n") + "\n"
         }
         return out
     }
@@ -130,10 +155,20 @@ enum TranscriptExport {
             .joined(separator: " · ")
 
         var out = "# \(singleLine(transcript.sourceName))\n\n*\(meta)*\n"
-        for para in paragraphs(transcript.segments) {
-            guard let first = para.first else { continue }
-            let text = joinSegments(para.map(\.text))
-            out += "\n**[\(clock(first.start, withHours: withHours))]** \(text)\n"
+        let speakers = transcript.showsSpeakers
+        for para in paragraphs(transcript) {
+            guard let first = para.segments.first else { continue }
+            let text = joinSegments(para.segments.map(\.text))
+            let stamp = clock(first.start, withHours: withHours)
+            if let name = para.turnName {
+                out += "\n**\(escapeMarkdown(name))** [\(stamp)]: \(text)\n"
+            } else if speakers {
+                // A turn's later paragraphs: the stamp alone, so the names
+                // stand out as the only bold text.
+                out += "\n[\(stamp)] \(text)\n"
+            } else {
+                out += "\n**[\(stamp)]** \(text)\n"
+            }
         }
         return out
     }
@@ -192,6 +227,39 @@ enum TranscriptExport {
         }
         if !current.isEmpty { out.append(current) }
         return out
+    }
+
+    /// Paragraphs as above, and with two or more speakers also at every
+    /// change of speaker, each knowing whose turn it is.
+    static func paragraphs(_ transcript: FileTranscript) -> [Paragraph] {
+        guard transcript.showsSpeakers else {
+            return paragraphs(transcript.segments).map { Paragraph(segments: $0, speaker: nil, turnName: nil) }
+        }
+        var out: [Paragraph] = []
+        var current: [TranscriptSegment] = []
+        var speaker: Int?
+        func flush() {
+            guard !current.isEmpty else { return }
+            let startsTurn = out.last.map { $0.speaker != speaker } ?? true
+            let name = startsTurn ? speaker.map(transcript.labels.name(of:)) : nil
+            out.append(Paragraph(segments: current, speaker: speaker, turnName: name))
+            current = []
+        }
+        for seg in transcript.segments {
+            let segSpeaker = transcript.speaker(of: seg)
+            if let prev = current.last, seg.start - prev.end >= paragraphGap || segSpeaker != speaker {
+                flush()
+            }
+            speaker = segSpeaker
+            current.append(seg)
+        }
+        flush()
+        return out
+    }
+
+    /// "Anna: " before the first paragraph of a turn, nothing elsewhere.
+    static func namePrefix(_ paragraph: Paragraph) -> String {
+        paragraph.turnName.map { "\($0): " } ?? ""
     }
 
     /// Joins segment texts into running text. Segments come trimmed, so the
@@ -267,13 +335,50 @@ enum TranscriptExport {
     /// out by text width — speech runs at a fairly even pace within one
     /// segment.
     static func subtitleCues(_ segments: [TranscriptSegment]) -> [SubtitleCue] {
+        subtitleCues(segments.map { CueSource(segment: $0, voice: nil, prefix: nil) })
+    }
+
+    /// The cues with speakers: each cue says who speaks it, and the first
+    /// cue of a turn starts with the name. Segments have one speaker each,
+    /// so no cue ever spans two.
+    static func subtitleCues(_ transcript: FileTranscript) -> [SubtitleCue] {
+        guard transcript.showsSpeakers else { return subtitleCues(transcript.segments) }
+        var sources: [CueSource] = []
+        for para in paragraphs(transcript) {
+            let voice = para.speaker.map(transcript.labels.name(of:))
+            for (index, seg) in para.segments.enumerated() {
+                let prefix = index == 0 && para.turnName != nil ? namePrefix(para) : nil
+                sources.append(CueSource(segment: seg, voice: voice, prefix: prefix))
+            }
+        }
+        return subtitleCues(sources)
+    }
+
+    /// A segment as subtitles show it.
+    private struct CueSource {
+        let segment: TranscriptSegment
+        let voice: String?
+        /// "Anna: " where the cue text names the speaker.
+        let prefix: String?
+    }
+
+    private static func subtitleCues(_ sources: [CueSource]) -> [SubtitleCue] {
         let maxCueChars = 2 * maxLineChars
         var cues: [SubtitleCue] = []
-        for seg in segments {
-            let words = cueWords(singleLine(seg.text))
+        for source in sources {
+            let seg = source.segment
+            var words = cueWords(singleLine(seg.text))
             guard !words.isEmpty else { continue }
+            // The name sticks to the first word, so no cue or line ends
+            // right after "Anna:". It takes room on screen but no time.
+            var prefixWidth = 0
+            if let prefix = source.prefix {
+                prefixWidth = width(prefix)
+                words[0] = CueWord(Substring(prefix + words[0].text), spaced: false)
+            }
             let (start, end) = cueBounds(seg)
             let length = textLength(words[...])
+            let spoken = max(1, length - prefixWidth)
             let byLength = (length + maxCueChars - 1) / maxCueChars
             let byTime = Int((Double(end - start) / (maxCueSeconds * 1000)).rounded(.up))
             // Nothing to share out in a segment without duration.
@@ -290,8 +395,8 @@ enum TranscriptExport {
             var done = 0
             for (index, piece) in pieces.enumerated() {
                 done += textLength(piece[...]) + (piece[0].spaced ? 1 : 0)
-                let cueEnd = index == count - 1 ? end : start + (end - start) * done / length
-                cues.append(SubtitleCue(start: cueStart, end: cueEnd, lines: wrap(piece)))
+                let cueEnd = index == count - 1 ? end : start + (end - start) * (done - prefixWidth) / spoken
+                cues.append(SubtitleCue(start: cueStart, end: cueEnd, lines: wrap(piece), voice: source.voice))
                 cueStart = cueEnd
             }
         }
@@ -498,5 +603,21 @@ enum TranscriptExport {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    /// A voice name inside `<v …>` ends at the first ">" or line break.
+    private static func escapeVTTAnnotation(_ name: String) -> String {
+        escapeVTT(singleLine(name))
+    }
+
+    /// Markdown would read "*" or "_" in a name as emphasis — and close the
+    /// bold around it.
+    private static func escapeMarkdown(_ text: String) -> String {
+        var out = ""
+        for char in singleLine(text) {
+            if "\\`*_[]<>|~".contains(char) { out.append("\\") }
+            out.append(char)
+        }
+        return out
     }
 }

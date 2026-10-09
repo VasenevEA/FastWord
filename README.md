@@ -105,6 +105,14 @@ Menu-bar icon → **Transcribe File…** opens a window where you drop an audio 
 - **Dictation keeps working.** Each file job runs in its own sidecar process, so push-to-talk stays instant while it runs. Progress and a time estimate show in the window and in the FastWord menu; you can close the window and the job carries on — the menu then says when it's done and reopens the result. Cancel stops it immediately.
 - **Local, like everything else.** The file is decoded to a temporary 16 kHz copy (~230 MB per hour of audio, deleted when the job ends) and never leaves your Mac.
 
+### Speakers
+
+Set **Speakers** next to Language to split the transcript by voice: **Auto**, or the number of people if you know it (2–6) — the exact number is noticeably more accurate. The first time, FastWord downloads two small models (~33 MB: [pyannote segmentation-3.0](https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0), MIT, and [3D-Speaker CAM++](https://huggingface.co/csukuangfj/speaker-embedding-models), Apache-2.0) into `~/Library/Application Support/FastWord/Models/diarization/`; they can be deleted in Settings → Models. Speaker detection runs alongside transcription, in a process of its own.
+
+- **Result.** Each turn starts with the speaker's name in color; chips under the header show everyone's talk time. Click a chip to rename the speaker ("Speaker 1" → "Anna") or merge two speakers that are really one person; ⌘Z undoes it. Names go into Copy, every export (TXT `Anna: …`, Markdown `**Anna** [00:12]: …`, SRT `Anna: ` on the first cue of a turn, WebVTT `<v Anna>` voice tags) and the History entry.
+- **What to expect.** It's a guess by voice, not recognition of people. It works best for 2–3 people with clean sound taking turns. Similar voices, interruptions and overlapping speech, short replies ("yeah", "uh-huh"), echoey rooms, phone-quality audio and 5+ people cause mistakes; sometimes one person is split in two — merge them. With one voice found, the transcript looks exactly as without speakers. If speaker detection fails, you still get the full transcript, with a note why.
+- **Private.** Voices are compared on your Mac and nothing about them is kept after the job.
+
 ## Configuration
 
 Most things are in **Settings**, but the sidecar still honours these env vars:
@@ -113,6 +121,7 @@ Most things are in **Settings**, but the sidecar still honours these env vars:
 | --- | --- | --- |
 | `FASTWORD_MODEL` | _(bundled)_ | Path to a `ggml-*.bin` whisper.cpp model. |
 | `FASTWORD_IDLE_EVICT` | `600` | Seconds of inactivity before the model is dropped from RAM. |
+| `FASTWORD_DIARIZATION_MODEL` | _(set by the app)_ | Folder with `segmentation.onnx` and `embedding.onnx` for speaker detection. |
 
 ## Architecture
 
@@ -130,7 +139,7 @@ Most things are in **Settings**, but the sidecar still honours these env vars:
 ```
 
 - **Swift app** captures 16 kHz mono Float32 PCM via `AVAudioEngine`, base64-encodes it, and sends a JSON request to the sidecar's stdin.
-- **Files** take the `transcribe_file` path instead: the app decodes the file (AVFoundation, or ffmpeg when present) to a temporary raw 16 kHz PCM file and sends its path; the sidecar streams progress lines and answers with timestamped segments.
+- **Files** take the `transcribe_file` path instead: the app decodes the file (AVFoundation, or ffmpeg when present) to a temporary raw 16 kHz PCM file and sends its path; the sidecar streams progress lines and answers with timestamped segments — each with a speaker id when Speakers is on.
 - **Rust sidecar** is a single ~1.5 MB binary that wraps `whisper.cpp` (with the Metal backend) via the `whisper-rs` crate. It keeps the model in RAM between requests and evicts on idle.
 - **Insertion path** prefers Accessibility (`kAXSelectedTextAttribute`) so your clipboard isn't touched. Falls back to clipboard + Cmd+V (with full clipboard snapshot/restore) for inputs that don't expose AX.
 - History lives in SQLite at `~/.fastword/history.sqlite`.
